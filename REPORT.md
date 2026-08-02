@@ -1,85 +1,106 @@
 # Qwen3.6 MoE vs dense on M1 Max
 
-Measured 2026-08-01/02 with [`bench.py`][bench]. Raw data in `results/`.
+Measured 2026-08-02 on a Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified
+memory (~400 GB/s). LM Studio + MLX. Numbers come from `lmstudio-bench`, which
+reads LM Studio's own perf counters and randomizes every prompt to defeat the
+KV cache. Raw data in `results/`.
 
-## Setup
+> **Read the caveat before quoting the headline ratio.** The two models are not
+> at matched precision — the dense model is 8-bit, the MoE is 4-bit. See
+> [Precision mismatch](#precision-mismatch-the-big-caveat).
 
-| | |
-|---|---|
-| Machine | Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified memory (~400 GB/s) |
-| Runtime | LM Studio, MLX (safetensors), OpenAI-compatible endpoint on `localhost:1234` |
-| Context | Both models loaded at 262144 |
-
-| Model | Arch | Params | Active | On disk | Resident |
+| Model | Arch | Params | Active | Quant | On disk |
 |---|---|---|---|---|---|
-| `qwen/qwen3.6-35b-a3b` | `qwen3_5_moe` | 35B | ~3B | 20.43 GB | 20.4 GB |
-| `qwen/qwen3.6-27b` | `qwen3_5` (dense) | 27B | 27B | 29.53 GB | 27.5 GiB |
-
-Only one model was resident at a time — both together plus KV cache would not
-fit in 64 GB.
+| `qwen/qwen3.6-35b-a3b` | `qwen3_5_moe` | 35B | ~3B | 4-bit | 19 GB |
+| `qwen/qwen3.6-27b` | `qwen3_5` (dense) | 27B | 27B | 8-bit | 28 GB |
 
 ## Results
 
-| Case | Prompt tok | Gen tok | 27b dense prefill | 27b dense decode | 35b-a3b MoE prefill | 35b-a3b MoE decode |
-|---|---|---|---|---|---|---|
-| short-ctx | 93 | 255 | 58.3 | 11.2 | 223.4 | 66.0 |
-| medium-ctx | 1,221 | 255 | 86.5 | 11.0 | 493.1 | 64.8 |
-| long-ctx | 4,821 | 255 | 113.4 | 10.9 | 695.5 | 63.7 |
-| long-ctx | 19,221 | 255 | 114.1 | 10.3 | 716.2 | 55.9 |
-| gen-heavy | 93 | 923–1023 | 57.0 | 11.1 | 224.8 | 66.3 |
+Median of 3 runs per row, 256 tokens generated.
 
-All figures tok/s. Prefill = `prompt_tokens / time-to-first-token`; decode
-excludes the first token.
+| Prompt tok | MoE 4-bit prefill | MoE 4-bit decode | Dense 8-bit prefill | Dense 8-bit decode |
+|---|---|---|---|---|
+| 30 (short) | – | 59.2 | – | 9.6 |
+| 837 | 518 | 63.6 | 87.6 | 10.8 |
+| 3,218 | 593 | 62.1 | 88.9 | 10.5 |
+| 12,853 | 589 | 58.5 | 86.7 | 10.0 |
 
-| | 27b dense | 35b-a3b MoE | MoE advantage |
+All figures tok/s. Prefill rate is omitted for the short prompt, where fixed
+request overhead dominates TTFT and the ratio means nothing.
+
+| | MoE 4-bit | Dense 8-bit | Ratio |
 |---|---|---|---|
-| Mean decode | 10.9 tok/s | 63.3 tok/s | **5.8×** |
-| Peak prefill | 114 tok/s | 716 tok/s | **6.3×** |
-| TTFT on 19k prompt | 168 s | 26.8 s | **6.3×** |
+| Mean decode | 61.4 tok/s | 10.4 tok/s | **5.9×** |
+| Prefill plateau | ~590 tok/s | ~87 tok/s | **6.8×** |
+| TTFT on ~13k prompt | 21.9 s | 148.2 s | **6.8×** |
+
+## Precision mismatch: the big caveat
+
+The dense model is 8-bit and the MoE is 4-bit, so it carries roughly twice the
+bytes per parameter (~1.09 vs ~0.58). Decode is memory-bandwidth-bound, so
+**a large share of the 5.9× decode gap is quantization, not architecture.**
+
+Estimating the split: the dense model streams all 29.5 GB per token at 10.4
+tok/s ≈ **307 GB/s effective**, about 77% of the M1 Max's theoretical peak —
+essentially at the hardware wall. A hypothetical 4-bit 27B would be ~15 GB and
+should decode near 20 tok/s at that same effective bandwidth. Against the MoE's
+61.4 tok/s, the *architectural* advantage at matched precision would be closer
+to **~3×** than 5.9×.
+
+An 8-bit-vs-8-bit run is possible without downloading anything — the 8-bit MoE
+variant is already on disk (35 GB). That is the honest comparison and it has
+not been run yet.
 
 ## Analysis
 
-**The MoE wins decisively on both axes, despite being the larger model.** It
-has 30% more total parameters than the dense 27B and still runs ~6× faster,
-because only ~3B parameters are active per token.
+**The MoE is dramatically faster, and would remain so at matched precision.**
+It has 30% more total parameters than the dense 27B yet activates only ~3B per
+token, and that is what the numbers reward.
 
-**Decode is memory-bandwidth-bound, and the numbers confirm it.** The dense
-model must stream all 27.5 GiB of weights per token: 27.5 GiB × 10.9 tok/s ≈
-**300 GB/s effective**, roughly 75% of the M1 Max's theoretical peak. That is
-close to hardware limit — there is no tuning headroom here, the model is simply
-too big to go faster on this machine. Working backwards at the same effective
-bandwidth, the MoE reads ~4.7 GB per token, about 23% of its 20.4 GB — the
-attention stack and shared weights plus the routed experts actually selected.
+**Decode is bandwidth-bound for both.** The dense model at ~307 GB/s effective
+is at ~77% of peak — there is no tuning headroom, it is simply too big to go
+faster here. Working back at the same effective bandwidth, the MoE reads
+~5.0 GB per token, about 24% of its 20.4 GB: the attention stack and shared
+weights plus whichever experts get routed.
 
-**Prefill is compute-bound and scales differently.** Both models climb with
-prompt length as the GPU saturates: the dense model plateaus at ~114 tok/s past
-~5k tokens, the MoE at ~716 tok/s. Short prompts understate both (58 and 223
-tok/s at 93 tokens) because fixed request overhead dominates TTFT, not because
-of any real ceiling.
+**Prefill is compute-bound and plateaus early.** Both models flatten by ~3k
+tokens — ~590 tok/s for the MoE, ~87 tok/s for the dense model — and hold that
+rate out to 13k.
 
-**Context degrades decode gracefully for both.** 66 → 56 tok/s for the MoE and
-11.2 → 10.3 tok/s for the dense model going from ~100 to 19k tokens of KV
-cache, roughly −15% and −8%.
+**Context costs decode modestly.** 63.6 → 58.5 tok/s for the MoE and 10.8 →
+10.0 for the dense model between 837 and ~13k tokens of KV cache, about −8% for
+both.
 
 ## Practical takeaways
 
-- **Use the MoE for anything interactive.** 63 tok/s is comfortably faster than
-  reading speed; 11 tok/s is not. The dense model's 168-second wait before the
-  first token of a 19k-token prompt makes it unusable for document work.
-- **The dense 27B is not worth it on this hardware** unless it is measurably
-  better at your task — you are paying ~6× latency and 7 GB more memory for a
-  model with fewer active parameters doing the work.
+- **Use the MoE for anything interactive.** 60 tok/s outruns reading speed;
+  10 tok/s does not. A 148-second wait before the first token of a 13k prompt
+  rules the dense 8-bit model out for document work.
 - **Both are prefill-bound on long inputs**, so prompt caching / KV reuse is
-  where the wins are, not decode tuning. Decode is already at ~75% of the
-  memory-bandwidth ceiling.
-- **Only one of these fits at a time.** Swapping costs ~30 s to load the 27B.
+  where the wins are. Decode is already near the memory-bandwidth ceiling.
+- **Only one large model fits at a time.** Attempting to JIT-load the 27B while
+  the MoE is resident trips LM Studio's resource guardrail with an HTTP 400.
+
+## Methodology notes
+
+- `lmstudio-bench` talks to LM Studio's native `/api/v0` endpoint, which
+  returns real `stats` (tokens/sec, time-to-first-token). The OpenAI-compatible
+  `/v1` route returns an empty `stats` object.
+- Every prompt body is seeded from a per-run nonce. This matters enormously:
+  LM Studio reuses KV cache across requests, and an identical repeated prompt
+  prefills **11.6× faster** (6471 vs 557 tok/s measured). Any benchmark whose
+  prompts share a prefix will report inflated prefill rates.
+- The `ttft_spread` column flags rows whose runs disagree by >25%, the
+  signature of an accidental cache hit. All rows here were 1–6%.
 
 ## Caveats
 
-- Single run per case, no repeats — expect a few percent of run-to-run noise.
-- The dense `gen-heavy` case stopped naturally at 923 tokens rather than
-  hitting the 1024 cap; the rate is unaffected.
-- Prefill rates derived from TTFT include request and sampling overhead, so
-  short-prompt figures are pessimistic.
-
-[bench]: bench.py
+- **Precision is not matched** — see above. This is the dominant caveat.
+- The ~13k dense row is a **single sample**, not a median of 3: two runs failed
+  with HTTP 400 when a concurrent `pi` session JIT-loaded the MoE and exhausted
+  memory. Its 86.7 tok/s is consistent with the 837 and 3,218 rows (87.6, 88.9),
+  so it is probably sound, but it is unverified.
+- An earlier run of these models used prompts built by repeating a fixed filler
+  string, so each size shared a prefix with the one before and prefill rates
+  were inflated by 15–20%. Those results are kept in `results/superseded/` and
+  should not be cited.

@@ -1,0 +1,50 @@
+[
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "size": "short",
+    "sized": false,
+    "prompt_tokens": 30,
+    "completion_tokens": 255,
+    "gen_tps": 59.227921734531996,
+    "ttft": 0.142,
+    "prefill_tps": 211.26760563380284,
+    "runs": 3,
+    "ttft_spread": 0.049295774647887175
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "size": "1000tok",
+    "sized": true,
+    "prompt_tokens": 837,
+    "completion_tokens": 255,
+    "gen_tps": 63.620297904569554,
+    "ttft": 1.631,
+    "prefill_tps": 517.8679588128407,
+    "runs": 3,
+    "ttft_spread": 0.06315144083384426
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "size": "4000tok",
+    "sized": true,
+    "prompt_tokens": 3218,
+    "completion_tokens": 255,
+    "gen_tps": 62.06896551724139,
+    "ttft": 5.429,
+    "prefill_tps": 592.742678209615,
+    "runs": 3,
+    "ttft_spread": 0.012893718916927662
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "size": "16000tok",
+    "sized": true,
+    "prompt_tokens": 12853,
+    "completion_tokens": 255,
+    "gen_tps": 58.47007164317079,
+    "ttft": 21.928,
+    "prefill_tps": 588.7449835826341,
+    "runs": 3,
+    "ttft_spread": 0.014273987595767914
+  }
+]

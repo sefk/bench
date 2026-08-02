@@ -1,48 +1,56 @@
 # Local LLM benchmarks
 
-Throughput benchmarks for models served locally by [LM Studio][lms] on Apple
-Silicon. Measures prefill (prompt processing) and decode (token generation)
-rates across a spread of context and generation lengths.
+Throughput benchmarks and other investigations of models running locally under
+[LM Studio][lms] on Apple Silicon.
 
 ## Hardware
 
 Mac Studio, Apple M1 Max — 10 CPU cores (8P/2E), 32 GPU cores, 64 GB unified
-memory. Roughly 400 GB/s memory bandwidth.
+memory, ~400 GB/s memory bandwidth.
 
-## Usage
+## Tooling
 
-Load a model in LM Studio and make sure the local server is running:
-
-```sh
-lms server start
-lms load qwen/qwen3.6-27b --context-length 262144
-```
-
-Then benchmark it and render the comparison:
+Benchmarks are run with `lmstudio-bench` (currently living in
+`~/src/sef-dotfiles/bin/`). It measures generation throughput, time-to-first-
+token, and prefill rate per model and prompt size:
 
 ```sh
-./bench.py qwen/qwen3.6-27b --out results/qwen3.6-27b.json
-./report.py
+lmstudio-bench                                   # every chat model on disk
+lmstudio-bench qwen/qwen3.6-27b -s 0,1000,4000 -n 3
+lmstudio-bench qwen/qwen3.6-35b-a3b --json > results/moe.json
 ```
 
-`bench.py` streams from the OpenAI-compatible endpoint at
-`localhost:1234` (override with `LMS_URL`) and reports, per case:
+Two things it does that a naive benchmark gets wrong:
 
-- `ttft_s` — time to first token
-- `prefill_tok_s` — `prompt_tokens / ttft`, prompt processing rate
-- `decode_tok_s` — generation rate after the first token
+- **Defeats the KV cache.** LM Studio reuses cached prefixes across requests —
+  a repeated prompt prefills 11.6× faster. Prompts whose bodies share a prefix
+  produce badly inflated prefill numbers, so every run's body is seeded from a
+  unique nonce.
+- **Reads LM Studio's own perf counters** via the native `/api/v0` endpoint.
+  The OpenAI-compatible `/v1` route returns an empty `stats` object.
 
-Only one large model fits comfortably alongside its KV cache on 64 GB, so
-unload the previous one before loading the next:
+The `ttft_spread` column flags rows whose runs disagree by more than 25% — the
+signature of an accidental cache hit. Treat those rows as suspect.
+
+## Gotchas on 64 GB
+
+Only one large model fits at a time. JIT-loading a second one trips LM Studio's
+resource guardrail with an HTTP 400 (`insufficient system resources`), which
+surfaces as sporadic failed runs rather than an obvious error. Unload first:
 
 ```sh
-lms unload <previous-model>
+lms unload --all
 ```
+
+Watch for other clients — an interactive `pi` session will JIT-load its own
+model mid-benchmark and cause exactly this. Check with `lms ps` and
+`lsof -nP -iTCP:1234`.
 
 ## Results
 
-See [REPORT.md][report] for measurements and analysis. Raw per-run JSON lives
-in `results/`.
+See [REPORT.md][report]. Raw per-run JSON is in `results/`;
+`results/superseded/` holds earlier runs with known methodology flaws, kept
+only so the numbers aren't accidentally re-derived.
 
 [lms]: https://lmstudio.ai
 [report]: REPORT.md
