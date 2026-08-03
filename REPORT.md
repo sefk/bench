@@ -4,7 +4,7 @@ Measured 2026-08-02 on a Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unifie
 memory (~400 GB/s theoretical). LM Studio + MLX, 262144 context, median of 3
 runs per row, 256 tokens generated. Numbers come from `lmstudio-bench`, which
 reads LM Studio's own perf counters and randomizes every prompt to defeat the
-KV cache. Raw data in `results/`.
+KV cache. Raw data in `results/2026-08-02/`.
 
 Four builds, all four quantization/architecture combinations:
 
@@ -135,13 +135,12 @@ The range across plausible draw assumptions (75–100 W) is $0.029–$0.039, so 
 answer is "a few cents" regardless. The wall-clock elapsed time was far longer
 than 1.16 h, but idle waiting draws roughly baseline and is not attributable.
 
-Caveat: the power figures are **estimated from typical M1 Max sustained-
+Caveat: these power figures are **estimated from typical M1 Max sustained-
 inference draw, not measured** — `powermetrics` requires root and was not
-sampled during the runs. To measure it directly next time:
-
-```sh
-sudo powermetrics --samplers cpu_power,gpu_power -n 5 -i 1000
-```
+sampled during the runs. They are also *total* draw, where the number that
+actually matters on a machine left powered on all day is the increment over
+idle, which is smaller. `lmstudio-bench --power-log` now measures both; see
+the README for how to run it.
 
 ## Methodology notes
 
@@ -169,4 +168,5 @@ sudo powermetrics --samplers cpu_power,gpu_power -n 5 -i 1000
 - Power figures are estimated, not measured — see above.
 - An early pass built prompts by repeating a fixed filler string, so each size
   shared a prefix with the one before and prefill came out 15–20% high. Those
-  results are in `results/superseded/` and should not be cited.
+  results have been deleted rather than kept, so they cannot be cited by
+  mistake; the finding that produced them is recorded under Methodology notes.

@@ -35,10 +35,11 @@ import shutil
 import statistics
 import subprocess
 import sys
-import tempfile
+
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 HOST = "http://localhost:1234"
@@ -132,113 +133,105 @@ def unload_all(settle=30):
 ################################################################################
 # Power measurement
 #
-# powermetrics is root-only, so --power has to be an opt-in that fails loudly
-# rather than something we attempt and silently skip. Without it the numbers
-# below are throughput-only and no energy claim can be made.
+# powermetrics is root-only, and this tool deliberately does not invoke sudo.
+# Instead the caller starts powermetrics separately (see --power-log) and this
+# reads the log it produces, matching samples to benchmark rows by wall-clock
+# time.
+#
+# On a machine that is left powered on anyway, the interesting number is not
+# total draw but the *increment* over idle. So the baseline is taken from
+# samples that fall outside every benchmark window -- the gaps while models
+# load and unload -- and subtracted.
 #
 # What is measured is SoC package power (CPU + GPU + ANE). It excludes DRAM,
-# PSU losses, and everything else in the machine, so it is a floor on
-# wall-draw, not a substitute for a plug meter.
+# PSU losses, and everything else in the machine.
 
-SAMPLE_INTERVAL_MS = 1000
 ELAPSED_RE = re.compile(r"\(([\d.]+)ms elapsed\)")
 POWER_RE = re.compile(r"^(CPU|GPU|ANE|Combined) Power[^:]*:\s+([\d.]+)\s*(m?W)", re.M)
+STAMP_RE = re.compile(r"\*\*\* Sampled system activity \(([^)]+?)\)\s*\(")
 
 
-def sudo_ok():
-    """True if sudo will run without prompting (credentials already cached)."""
-    try:
-        return subprocess.run(
-            ["sudo", "-n", "true"], capture_output=True, timeout=10
-        ).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+class PowerLog:
+    """Reads a powermetrics log produced by someone else and attributes it.
 
-
-class PowerMonitor:
-    """Samples SoC power in the background for the life of the benchmark.
-
-    powermetrics emits one block per sample, each carrying its own measured
-    interval ("1000.51ms elapsed"). Summing those gives a timeline without
-    having to parse wall-clock dates or trust the requested interval, which
-    drifts under load.
+    Samples are timestamped with wall-clock dates, so benchmark windows are
+    recorded in wall-clock time too and the two are matched directly. That
+    avoids needing to know when powermetrics was started.
     """
 
-    def __init__(self):
-        self.proc = None
-        self.path = None
-        self.t0 = None
-        self.samples = []  # (end_offset_s, duration_s, watts)
+    def __init__(self, path):
+        self.path = path
+        self.samples = []  # (midpoint_epoch, duration_s, watts)
+        self.idle_watts = None
 
-    def start(self):
-        fd, self.path = tempfile.mkstemp(prefix="lmsbench-power-", suffix=".txt")
-        os.close(fd)
-        self.t0 = time.monotonic()
-        self.proc = subprocess.Popen(
-            ["sudo", "-n", "powermetrics", "--samplers", "cpu_power,gpu_power",
-             "-i", str(SAMPLE_INTERVAL_MS), "-o", self.path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        time.sleep(2)  # let the first sample land so early rows are covered
-        if self.proc.poll() is not None:
-            raise RuntimeError("powermetrics exited immediately")
-
-    def stop(self):
-        if not self.proc:
-            return
-        # powermetrics runs as root, so a plain terminate() from this process
-        # is not permitted -- the kill has to go back through sudo.
-        subprocess.run(["sudo", "-n", "kill", "-INT", str(self.proc.pid)],
-                       capture_output=True)
-        try:
-            self.proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            subprocess.run(["sudo", "-n", "kill", "-KILL", str(self.proc.pid)],
-                           capture_output=True)
-        self._parse()
-
-    def _parse(self):
+    def parse(self):
         try:
             text = open(self.path, errors="replace").read()
-        except OSError:
+        except OSError as exc:
+            print(f"WARNING: cannot read power log {self.path}: {exc}",
+                  file=sys.stderr)
             return
-        finally:
-            try:
-                os.unlink(self.path)
-            except OSError:
-                pass
 
-        # Split on sample headers so each block's power lines stay with its
-        # own elapsed time.
-        blocks = re.split(r"\*\*\* Sampled system activity", text)
-        clock = 0.0
-        for block in blocks[1:]:
-            m = ELAPSED_RE.search(block)
-            if not m:
+        for block in re.split(r"(?=\*\*\* Sampled system activity)", text):
+            stamp = STAMP_RE.search(block)
+            elapsed = ELAPSED_RE.search(block)
+            if not (stamp and elapsed):
                 continue
-            dur = float(m.group(1)) / 1000.0
+            when = self._parse_stamp(stamp.group(1))
+            if when is None:
+                continue
+            dur = float(elapsed.group(1)) / 1000.0
             found = {k: (float(v) / 1000.0 if u == "mW" else float(v))
                      for k, v, u in POWER_RE.findall(block)}
-            # Prefer the combined figure; otherwise add up what we did get.
             watts = found.get("Combined")
             if watts is None:
                 watts = sum(found.get(k, 0.0) for k in ("CPU", "GPU", "ANE"))
-            clock += dur
             if watts > 0:
-                self.samples.append((clock, dur, watts))
+                # Timestamp marks the end of the sample; centre it.
+                self.samples.append((when - dur / 2, dur, watts))
 
-    def window(self, start_offset, end_offset):
-        """Mean watts and energy (Wh) for samples centred in [start, end]."""
-        hits = [(d, w) for end, d, w in self.samples
-                if start_offset <= (end - d / 2) <= end_offset]
+    @staticmethod
+    def _parse_stamp(raw):
+        # e.g. "Sat Aug  2 14:23:45 2026 -0700" -- day is space-padded, so
+        # collapse runs of whitespace before handing it to strptime.
+        cleaned = " ".join(raw.split())
+        for fmt in ("%a %b %d %H:%M:%S %Y %z", "%a %b %d %H:%M:%S %Y"):
+            try:
+                return datetime.strptime(cleaned, fmt).timestamp()
+            except ValueError:
+                continue
+        return None
+
+    def compute_idle(self, windows, guard=10.0):
+        """Baseline draw, from samples well outside every benchmark window.
+
+        Two defences against contamination, because a baseline that is too high
+        silently understates the incremental energy:
+
+        - a guard band, since the GPU does not fall to idle the instant a run
+          ends and ramps before the first token of the next one;
+        - the median rather than the mean, so any busy sample that still leaks
+          through cannot drag the figure up.
+        """
+        outside = [w for mid, _, w in self.samples
+                   if not any(s - guard <= mid <= e + guard for s, e in windows)]
+        if outside:
+            self.idle_watts = statistics.median(outside)
+        return self.idle_watts
+
+    def window(self, start, end):
+        """Mean watts, total Wh, and Wh above idle, for one benchmark window."""
+        hits = [(d, w) for mid, d, w in self.samples if start <= mid <= end]
         if not hits:
-            return None, None
+            return None, None, None
         joules = sum(d * w for d, w in hits)
         span = sum(d for d, _ in hits)
-        return joules / span, joules / 3600.0
-
-    def now(self):
-        return time.monotonic() - self.t0
+        mean_w = joules / span
+        wh = joules / 3600.0
+        incr_wh = None
+        if self.idle_watts is not None:
+            incr_wh = max(0.0, (mean_w - self.idle_watts)) * span / 3600.0
+        return mean_w, wh, incr_wh
 
 
 ################################################################################
@@ -335,8 +328,9 @@ def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None
             break
 
         # Timed from after the warm-up, so model load and shader compilation
-        # are excluded from the energy attributed to this row.
-        win_start = power.now() if power else None
+        # are excluded from the energy attributed to this row. Wall-clock,
+        # to match powermetrics' own timestamps.
+        win_start = time.time() if power else None
         for i in range(runs):
             try:
                 sample = one_run(model, build_prompt(f"{label}-{i}", size), max_tokens)
@@ -351,7 +345,7 @@ def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None
                     file=sys.stderr,
                 )
 
-        win_end = power.now() if power else None
+        win_end = time.time() if power else None
         if not samples:
             continue
 
@@ -401,7 +395,7 @@ def print_table(rows, power=False):
         f"{'ttft':>7}  {'prefill tok/s':>13}  {'runs':>4}  {'spread':>7}"
     )
     if power:
-        header += f"  {'watts':>6}  {'tok/Wh':>7}"
+        header += f"  {'watts':>6}  {'over idle':>9}  {'tok/Wh':>7}"
     print(header)
 
     suspect = False
@@ -416,15 +410,20 @@ def print_table(rows, power=False):
         )
         if power:
             w = f"{row['watts']:.1f}" if row.get("watts") else "-"
+            idle = row.get("idle_watts")
+            over = f"+{row['watts'] - idle:.1f}" if row.get("watts") and idle else "-"
             t = f"{row['tokens_per_wh']:.0f}" if row.get("tokens_per_wh") else "-"
-            line += f"  {w:>6}  {t:>7}"
+            line += f"  {w:>6}  {over:>9}  {t:>7}"
         print(line)
 
     if power:
         total = sum(r["energy_wh"] for r in rows if r.get("energy_wh"))
+        incr = sum(r["incremental_wh"] for r in rows if r.get("incremental_wh"))
+        idle = next((r["idle_watts"] for r in rows if r.get("idle_watts")), None)
         if total:
-            print(f"\ntotal measured energy: {total:.2f} Wh "
-                  f"(SoC package only -- excludes DRAM, PSU losses, rest of machine)")
+            print(f"\ntotal energy: {total:.2f} Wh, of which {incr:.2f} Wh is above "
+                  f"idle ({idle:.1f} W baseline)")
+            print("SoC package only -- excludes DRAM, PSU losses, rest of machine")
     if suspect:
         print(
             "\n! runs disagree by >25% on ttft -- likely a KV cache hit. "
@@ -472,11 +471,12 @@ def main():
         "variant like qwen/qwen3.6-27b@4bit)",
     )
     parser.add_argument(
-        "--power",
-        action="store_true",
-        help="measure SoC power draw with powermetrics. Requires sudo: run "
-        "'sudo -v' first, or invoke the whole benchmark under sudo. Without "
-        "this flag no energy is measured and none is reported.",
+        "--power-log",
+        metavar="FILE",
+        help="attribute energy using a powermetrics log written by someone "
+        "else (this tool never runs sudo). Start it first with: sudo "
+        "powermetrics --samplers cpu_power,gpu_power -i 1000 -o FILE. "
+        "Without this, no energy is measured and none is reported.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="print each individual run"
@@ -488,67 +488,72 @@ def main():
         sys.exit("LM Studio reports no chat models.")
     sizes = [int(s) for s in args.sizes.split(",") if s.strip()]
 
-    monitor = None
-    if args.power:
-        # Fail up front rather than half way through a 40-minute run.
-        if not sudo_ok():
+    power = None
+    if args.power_log:
+        # Fail up front rather than after a 40-minute run, but only on things
+        # knowable now: the log may legitimately be empty until the first
+        # sample lands.
+        if not os.path.exists(args.power_log):
             sys.exit(
-                "--power needs sudo, and sudo would prompt for a password.\n"
-                "Run 'sudo -v' to cache credentials first, then re-run."
+                f"power log {args.power_log} does not exist.\n"
+                "Start the sampler first:\n"
+                "  sudo powermetrics --samplers cpu_power,gpu_power "
+                f"-i 1000 -o {args.power_log} &"
             )
-        if not shutil.which("powermetrics"):
-            sys.exit("--power needs powermetrics, which was not found on PATH.")
-        monitor = PowerMonitor()
-        try:
-            monitor.start()
-        except (OSError, RuntimeError) as exc:
-            sys.exit(f"could not start powermetrics: {exc}")
-        print("measuring SoC power via powermetrics", file=sys.stderr)
+        power = PowerLog(args.power_log)
+        print(f"will attribute energy from {args.power_log}", file=sys.stderr)
     else:
         print(
             "NOT measuring power -- throughput only. Any energy figure derived "
             "from these results is an assumption, not a measurement. "
-            "Pass --power (needs sudo) to measure it.",
+            "Pass --power-log FILE to measure it.",
             file=sys.stderr,
         )
 
     rows = []
-    try:
-        for model in models:
-            for row in bench_model(
-                model, sizes, args.runs, args.max_tokens, args.verbose,
-                unload=not args.no_unload, power=monitor,
-            ):
-                if args.label:
-                    row["model"] = args.label
-                rows.append(row)
-    finally:
-        if monitor:
-            monitor.stop()
+    for model in models:
+        for row in bench_model(
+            model, sizes, args.runs, args.max_tokens, args.verbose,
+            unload=not args.no_unload, power=power,
+        ):
+            if args.label:
+                row["model"] = args.label
+            rows.append(row)
 
-    if monitor and not monitor.samples:
-        print("WARNING: powermetrics produced no usable samples; "
-              "power columns will be empty.", file=sys.stderr)
+    # Parse only now, so the log covers the whole run.
+    if power:
+        power.parse()
+        if not power.samples:
+            print("WARNING: no usable samples in the power log; "
+                  "is powermetrics still running?", file=sys.stderr)
+        windows = [r["_window"] for r in rows if r.get("_window")]
+        idle = power.compute_idle(windows)
+        if idle is None:
+            print("WARNING: no samples fell outside the benchmark windows, so "
+                  "there is no idle baseline; incremental energy unavailable.",
+                  file=sys.stderr)
 
-    # Now that samples exist, resolve each row's window into energy figures.
     for row in rows:
         window = row.pop("_window", None)
         generated = row.pop("_generated", 0)
-        watts = energy_wh = tokens_per_wh = None
-        if monitor and window:
-            watts, energy_wh = monitor.window(*window)
-            if energy_wh:
-                # Generated tokens per watt-hour -- the efficiency figure that
-                # actually matters when comparing models.
-                tokens_per_wh = generated / energy_wh
+        watts = energy_wh = incr_wh = tokens_per_wh = None
+        if power and window:
+            watts, energy_wh, incr_wh = power.window(*window)
+            if incr_wh:
+                # Tokens per incremental watt-hour: the efficiency figure that
+                # matters on a machine that is left on regardless.
+                tokens_per_wh = generated / incr_wh
         row["watts"] = watts
         row["energy_wh"] = energy_wh
+        row["incremental_wh"] = incr_wh
         row["tokens_per_wh"] = tokens_per_wh
+        if power:
+            row["idle_watts"] = power.idle_watts
 
     if args.json:
         print(json.dumps(rows, indent=2))
     else:
-        print_table(rows, power=bool(monitor))
+        print_table(rows, power=bool(power))
 
 
 if __name__ == "__main__":

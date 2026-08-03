@@ -33,27 +33,51 @@ does not cost earlier results.
 
 ### Measuring power
 
-Energy is measured only when asked for, because `powermetrics` needs root:
+`powermetrics` needs root, and these tools never invoke `sudo`. Start the
+sampler yourself, run the benchmark against its log, then stop it:
 
 ```sh
-sudo -v                        # cache credentials first
-./lmstudio-bench <model> --power
-POWER=1 ./run-matrix.sh        # same, across the whole matrix
+sudo powermetrics --samplers cpu_power,gpu_power -i 1000 -o /tmp/power.log &
+
+POWER_LOG=/tmp/power.log ./run-matrix.sh          # or:
+./lmstudio-bench <model> --power-log /tmp/power.log
+
+sudo pkill -INT powermetrics
 ```
 
-This adds `watts` and `tok/Wh` columns and a total energy figure. Without
-`--power` the tool prints a warning that no energy is being measured — any
+Start the sampler **before** the benchmark and stop it **after**. The samples
+that fall outside the benchmark windows are what establish the idle baseline;
+without them there is no increment to report.
+
+Output gains `watts`, `over idle`, and `tok/Wh` columns plus a total. Because
+this machine is left powered on regardless, the figure that matters is energy
+**above idle**, so `tok/Wh` is computed against incremental energy, not total
+draw.
+
+Without `--power-log` the tool says plainly that it is not measuring power. Any
 energy number derived from a run without it is an assumption, not a
 measurement.
 
-Both entry points check for sudo up front and refuse to start rather than
-failing partway through a long run. `run-matrix.sh` also refreshes the sudo
-timestamp in the background, since it expires after ~5 minutes but the matrix
-runs for the better part of an hour.
+Baseline handling: samples within 10 s of a benchmark window are excluded (the
+GPU neither drops to idle instantly nor ramps instantly), and the baseline is
+the median rather than the mean, so a leaked busy sample cannot inflate it — an
+inflated baseline would silently understate the increment.
 
 What is measured is **SoC package power** (CPU + GPU + ANE). It excludes DRAM,
 PSU losses, and the rest of the machine, so treat it as a floor on wall draw,
 not a substitute for a plug meter.
+
+## Results layout
+
+Results are kept per run date, since runs are infrequent and worth keeping
+apart:
+
+```
+results/2026-08-02/qwen3.6-35b-a3b-4bit.json
+```
+
+`run-matrix.sh` writes to `results/$(date +%F)/` by default; override with
+`OUTDIR=...`.
 
 Two things it does that a naive benchmark gets wrong:
 
@@ -83,9 +107,7 @@ model mid-benchmark and cause exactly this. Check with `lms ps` and
 
 ## Results
 
-See [REPORT.md][report]. Raw per-run JSON is in `results/`;
-`results/superseded/` holds earlier runs with known methodology flaws, kept
-only so the numbers aren't accidentally re-derived.
+See [REPORT.md][report]. Raw per-run JSON is under `results/<date>/`.
 
 [lms]: https://lmstudio.ai
 [report]: REPORT.md
