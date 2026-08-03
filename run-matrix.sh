@@ -17,6 +17,24 @@ cd "$(dirname "$0")"
 SIZES=${SIZES:-0,1000,4000,16000}
 RUNS=${RUNS:-3}
 BENCH=./lmstudio-bench
+POWER=${POWER:-0}          # POWER=1 to measure energy (needs sudo)
+
+BENCH_ARGS=()
+if [ "$POWER" = "1" ]; then
+  if ! sudo -n true 2>/dev/null; then
+    echo "POWER=1 needs sudo. Run 'sudo -v' first, then re-run." >&2
+    exit 1
+  fi
+  BENCH_ARGS+=(--power)
+  # sudo's timestamp expires after ~5 minutes but the matrix runs for the
+  # better part of an hour, so refresh it until this script exits. Without
+  # this, every variant after the first fails its sudo check.
+  ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 60; done ) &
+  KEEPALIVE=$!
+  trap 'kill "$KEEPALIVE" 2>/dev/null' EXIT
+else
+  echo "NOT measuring power (set POWER=1 to measure; needs sudo)" >&2
+fi
 
 # Fastest first, so results land early if the run is interrupted.
 VARIANTS=(
@@ -35,7 +53,8 @@ for variant in "${VARIANTS[@]}"; do
   echo "=== $variant -> results/$slug.json ==="
   start=$(date +%s)
 
-  if $BENCH "$variant" -s "$SIZES" -n "$RUNS" --json \
+  if $BENCH "$variant" "${BENCH_ARGS[@]+"${BENCH_ARGS[@]}"}" \
+      -s "$SIZES" -n "$RUNS" --json \
       > "results/$slug.json" 2> "results/$slug.log"; then
     rows=$(python3 -c "import json;print(len(json.load(open('results/$slug.json'))))" 2>/dev/null || echo 0)
     echo "  done in $(( ($(date +%s) - start) / 60 ))m, $rows rows"

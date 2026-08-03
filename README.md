@@ -10,15 +10,50 @@ memory, ~400 GB/s memory bandwidth.
 
 ## Tooling
 
-Benchmarks are run with `lmstudio-bench` (currently living in
-`~/src/sef-dotfiles/bin/`). It measures generation throughput, time-to-first-
-token, and prefill rate per model and prompt size:
+`lmstudio-bench` measures generation throughput, time-to-first-token, and
+prefill rate per model and prompt size:
 
 ```sh
-lmstudio-bench                                   # every chat model on disk
-lmstudio-bench qwen/qwen3.6-27b -s 0,1000,4000 -n 3
-lmstudio-bench qwen/qwen3.6-35b-a3b --json > results/moe.json
+./lmstudio-bench                                   # every chat model on disk
+./lmstudio-bench qwen/qwen3.6-27b -s 0,1000,4000 -n 3
+./lmstudio-bench qwen/qwen3.6-35b-a3b --json > results/moe.json
 ```
+
+Quantization variants are addressed with `model@quant`. Note that `lms load`
+cannot do this — it matches only base model keys and silently loads whichever
+variant happens to be selected — but the REST API resolves them, so JIT
+loading picks the right build:
+
+```sh
+./lmstudio-bench qwen/qwen3.6-27b@4bit qwen/qwen3.6-27b@8bit
+```
+
+`run-matrix.sh` sweeps every variant, one invocation each so a late failure
+does not cost earlier results.
+
+### Measuring power
+
+Energy is measured only when asked for, because `powermetrics` needs root:
+
+```sh
+sudo -v                        # cache credentials first
+./lmstudio-bench <model> --power
+POWER=1 ./run-matrix.sh        # same, across the whole matrix
+```
+
+This adds `watts` and `tok/Wh` columns and a total energy figure. Without
+`--power` the tool prints a warning that no energy is being measured — any
+energy number derived from a run without it is an assumption, not a
+measurement.
+
+Both entry points check for sudo up front and refuse to start rather than
+failing partway through a long run. `run-matrix.sh` also refreshes the sudo
+timestamp in the background, since it expires after ~5 minutes but the matrix
+runs for the better part of an hour.
+
+What is measured is **SoC package power** (CPU + GPU + ANE). It excludes DRAM,
+PSU losses, and the rest of the machine, so treat it as a floor on wall draw,
+not a substitute for a plug meter.
 
 Two things it does that a naive benchmark gets wrong:
 
