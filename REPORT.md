@@ -1,12 +1,10 @@
-# Qwen3.6 MoE vs dense on M1 Max: architecture vs quantization
+# Qwen3.6 MoE vs dense on M1 Max: speed, power, and energy
 
-Measured 2026-08-02 on a Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified
+Measured 2026-08-03 on a Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified
 memory (~400 GB/s theoretical). LM Studio + MLX, 262144 context, median of 3
-runs per row, 256 tokens generated. Numbers come from `lmstudio-bench`, which
-reads LM Studio's own perf counters and randomizes every prompt to defeat the
-KV cache. Raw data in `results/2026-08-02/`.
-
-Four builds, all four quantization/architecture combinations:
+runs per row, 256 tokens generated. Throughput comes from LM Studio's own perf
+counters; power from `powermetrics` sampled across the run. Raw data in
+`results/2026-08-03/`.
 
 | Variant | Arch | Params | Active | Quant | Weights |
 |---|---|---|---|---|---|
@@ -15,158 +13,136 @@ Four builds, all four quantization/architecture combinations:
 | `qwen3.6-27b@4bit` | dense | 27B | 27B | 4-bit | 16.08 GB |
 | `qwen3.6-27b@8bit` | dense | 27B | 27B | 8-bit | 29.53 GB |
 
-## Decode (tok/s)
+## Full matrix
+
+Each cell: decode tok/s · prefill tok/s · watts · generated tokens per Wh.
 
 | Prompt tok | MoE 4-bit | MoE 8-bit | Dense 4-bit | Dense 8-bit |
 |---|---|---|---|---|
-| 30 | 58.3 | 48.5 | 16.3 | 9.7 |
-| 837 | 63.9 | 51.7 | 18.5 | 10.8 |
-| 3,218 | 63.9 | 51.9 | 18.5 | 10.7 |
-| 12,853 | 59.8 | 48.3 | 16.8 | 10.4 |
+| 30 | 57.4 · – · 23.7 · 10707 | 48.5 · – · 22.0 · 10019 | 17.1 · – · 40.7 · 1708 | 9.8 · – · 28.8 · 1512 |
+| 837 | 65.0 · 518 · 31.8 · 5462 | 52.4 · 520 · 27.2 · 5838 | 18.4 · 87 · 43.9 · 925 | 10.9 · 89 · 33.7 · 915 |
+| 3,218 | 64.4 · 599 · 37.0 · 2920 | 52.2 · 594 · 34.8 · 2723 | 18.6 · 90 · 46.4 · 418 | 10.7 · 91 · 40.2 · 423 |
+| 12,853 | 59.2 · 593 · 44.3 · 845 | 48.6 · 592 · 42.8 · 855 | 17.4 · 89 · 49.1 · 122 | 10.3 · 90 · 45.7 · 129 |
 
-## Prefill (tok/s)
+`tok/Wh` counts **generated** tokens against energy **above idle**, so it falls
+with prompt length: a 12,853-token prompt spends most of its energy on prefill
+before producing any of its 256 output tokens. Compare across a row, not down a
+column.
 
-| Prompt tok | MoE 4-bit | MoE 8-bit | Dense 4-bit | Dense 8-bit |
-|---|---|---|---|---|
-| 837 | 516 | 510 | 88.1 | 88.4 |
-| 3,218 | 591 | 590 | 89.2 | 90.2 |
-| 12,853 | 591 | 588 | 88.5 | 88.8 |
+## Quantization buys speed, not energy
 
-## The two effects are separable, and they hit different things
+The clearest result, and it holds independently in both architectures. At the
+3,218-token row:
 
-Using the 3,218-token row throughout:
+| | 4-bit | 8-bit | speed | power | **energy/token** |
+|---|---|---|---|---|---|
+| Dense 27B | 18.6 tok/s, 46.4 W | 10.7 tok/s, 40.2 W | 1.74× | 1.15× | **0.99× — level** |
+| MoE 35B-A3B | 64.4 tok/s, 37.0 W | 52.2 tok/s, 34.8 W | 1.23× | 1.06× | **1.07× — level** |
 
-| | Decode | Prefill |
-|---|---|---|
-| **Architecture** (MoE vs dense, same precision) | 3.5× at 4-bit, **4.9×** at 8-bit | **6.6×** at both |
-| **Quantization** (4-bit vs 8-bit, same arch) | 1.23× MoE, **1.76×** dense | **1.00×** — no effect |
+Going to 4-bit makes decode substantially faster, but power rises almost in
+proportion, so watt-hours per token barely move. The mechanism is consistent
+with decode being memory-bound: halving the bytes per token lets the GPU spend
+more of its time computing rather than waiting, which is faster *and* hotter.
+You finish sooner and draw more while you do.
 
-**Quantization does nothing for prefill.** Dense prefill is 89.2 vs 90.2 tok/s
-at 4-bit vs 8-bit; MoE is 591 vs 590. Prefill is compute-bound — it is doing
-large batched matmuls, and halving the weight bytes does not reduce the
-arithmetic. If you are prefill-bound on long prompts, quantizing further buys
-you nothing.
+**The practical consequence: choosing 8-bit costs latency, not electricity.**
+For the MoE the electricity difference is nil — 8-bit is actually ahead at 837
+and 12,853 tokens — while decode is 19% slower. If 8-bit is better for the work
+in question, the running cost of preferring it is zero.
 
-**Quantization is most of the dense decode story.** Dense decode goes 10.7 →
-18.5 tok/s (1.76×) purely from 8-bit → 4-bit, because decode streams every
-weight once per token and 4-bit halves the bytes.
+## Architecture is where the efficiency actually is
 
-**Architecture is worth 3.5–4.9× on decode and a flat 6.6× on prefill.** The
-MoE has 30% more total parameters than the dense 27B and still wins everywhere,
-because only ~3B activate per token.
+At the same 3,218-token row, MoE 4-bit vs dense 4-bit:
 
-## Where the simple bandwidth model works, and where it breaks
-
-Decode should be memory-bandwidth-bound: tok/s ≈ bandwidth ÷ bytes read per
-token. For the **dense** models this is almost exact, and it is a real
-prediction, not a fit — the 4-bit decode figure was predicted at ~19 tok/s
-before the run and measured 18.5.
-
-| Dense variant | Weights | Decode | Implied bandwidth |
+| | Dense 4-bit | MoE 4-bit | ratio |
 |---|---|---|---|
-| 27b@8bit | 29.53 GB | 10.7 | 316 GB/s |
-| 27b@4bit | 16.08 GB | 18.5 | 297 GB/s |
+| Decode | 18.6 tok/s | 64.4 tok/s | 3.5× |
+| Power | 46.4 W | 37.0 W | 0.80× |
+| **Energy per token** | 418 tok/Wh | 2920 tok/Wh | **7.0×** |
 
-Two independent points agreeing at ~300 GB/s, about 77% of the M1 Max's
-theoretical peak. The dense models are at the hardware wall; there is no tuning
-headroom.
+The efficiency gain is double the throughput gain, because the MoE is faster
+*and* draws less power. Activating ~3B of 35B parameters means less work per
+token, not merely less waiting on memory — so the two effects multiply rather
+than trade off. This is the opposite of the quantization result above, and it
+is why architecture rather than precision is the lever worth pulling here.
 
-**For the MoE the same model fails.** Predicting the 8-bit MoE by assuming it
-reads a fixed ~24% of its weights per token gave ~33 tok/s. It measured
-**51.9** — off by 57%.
+Prefill tells the same story more starkly: 599 vs 90 tok/s, a 6.6× gap that is
+unaffected by quantization in either direction (518/599/593 for MoE 4-bit
+against 520/594/592 for 8-bit; 87/90/89 dense 4-bit against 89/91/90 8-bit).
+Prefill is compute-bound, so fewer active parameters help and fewer bits do not.
 
-| MoE variant | Weights | Decode | Implied bytes/token | As % of weights |
-|---|---|---|---|---|
-| 35b-a3b@4bit | 20.43 GB | 63.9 | 4.7 GB | 23% |
-| 35b-a3b@8bit | 37.75 GB | 51.9 | 5.8 GB | 15% |
+## Power scales with prompt length
 
-Doubling precision cost the MoE only **1.23×** in decode, where a pure
-bandwidth model demands ~1.85× (the ratio of the two file sizes). Fitting
-`time_per_token = bytes/bandwidth + overhead` to the two MoE points yields
-~1.3 GB read per token and **~11 ms of fixed per-token overhead**; the same fit
-on the two dense points gives ~0 ms.
-
-The likely reading is that **MoE decode is substantially latency-bound rather
-than bandwidth-bound** — expert routing and gather produce many small
-operations whose cost does not shrink when the weights get smaller. Treat this
-as a hypothesis fitted to two points, not a confirmed mechanism; distinguishing
-it from other explanations (lower achieved bandwidth on gather-heavy access,
-different MLX kernel efficiency per precision) would need per-layer profiling.
-
-The practical consequence is concrete: **quantizing an MoE down buys much less
-than quantizing a dense model down.** Dense gained 1.76× from 8→4 bit; the MoE
-gained 1.23×.
+Draw climbs steadily with context in every variant — MoE 4-bit goes 23.7 → 44.3
+W from the shortest prompt to the longest. Prefill saturates the GPU harder than
+decode does, so a long-prompt workload runs the machine hotter as well as
+longer. Idle baseline measured 1.9–3.2 W across runs.
 
 ## Practical takeaways
 
-- **`35b-a3b@4bit` is the right default** at 63.9 tok/s decode and 591 tok/s
-  prefill — the fastest build on both axes, and the smallest of the four
-  at 20.43 GB.
-- **`35b-a3b@8bit` costs surprisingly little**: 51.9 tok/s, only 19% slower
-  than the 4-bit build, with identical prefill. If 8-bit quality matters, it is
-  cheap here in a way it is not for dense models.
-- **Neither dense build is competitive on this hardware.** Even at 4-bit the
-  dense 27B decodes at 18.5 tok/s and prefills at 89 — a 12,853-token prompt
-  costs 145 s before the first token, versus 22 s for the MoE.
-- **Long prompts are prefill-bound for everything.** Prompt caching / KV reuse
-  is where the wins are; quantization cannot help there.
-- **Only one large model fits at a time.** JIT-loading a second trips LM
-  Studio's guardrail with an HTTP 400.
+- **`35b-a3b@4bit` remains the default**: fastest on both axes and the most
+  energy-efficient at short-to-medium context.
+- **`35b-a3b@8bit` is nearly free in energy terms.** 19% slower decode,
+  identical prefill, same watt-hours per token. The only cost is waiting.
+- **Neither dense build is competitive**, on speed or on energy. Dense 4-bit
+  needs 7× the energy per token of MoE 4-bit and still takes 145 s to first
+  token on a 12.8k prompt.
+- **Quantizing further is not an energy optimization.** If the goal is lower
+  power draw rather than lower latency, quantization is the wrong lever.
 
-## Energy cost of this benchmarking
+## What this benchmark cost
 
-Active GPU time, derived from the measured per-request latencies (each row is
-3 timed runs plus one discarded warm-up):
+Measured, not estimated — energy above idle, for the timed windows only:
 
-| Phase | GPU time |
+| Variant | Above idle |
 |---|---|
-| First pass (flawed, superseded) | 8.0 min |
-| Clean re-runs | 16.9 min |
-| 4-variant matrix | 42.3 min |
-| Probes and one-off requests | 2.5 min |
-| **Total at full GPU load** | **1.16 h** |
+| MoE 4-bit | 1.38 Wh |
+| MoE 8-bit | 1.38 Wh |
+| Dense 4-bit | 9.39 Wh |
+| Dense 8-bit | 9.09 Wh |
+| **Total** | **21.2 Wh** |
 
-Plus ~7.5 min of model loading at lower draw. At an assumed 85 W sustained wall
-draw under inference and 30 W while loading:
+At $0.32/kWh that is **$0.007 — about two-thirds of a cent.** The two dense
+variants account for 87% of it.
 
-**≈0.10 kWh, ≈$0.033** at $0.32/kWh — about three cents.
+An earlier version of this report estimated the energy from assumed wall draw
+(85 W) and put a comparable workload near 60 Wh. The measurement came in about
+**2.7× lower**. The assumption was wrong in two ways: sustained draw is far
+below the machine's peak, and on a machine left powered on all day the relevant
+quantity is the increment over idle, not total draw.
 
-The range across plausible draw assumptions (75–100 W) is $0.029–$0.039, so the
-answer is "a few cents" regardless. The wall-clock elapsed time was far longer
-than 1.16 h, but idle waiting draws roughly baseline and is not attributable.
-
-Caveat: these power figures are **estimated from typical M1 Max sustained-
-inference draw, not measured** — `powermetrics` requires root and was not
-sampled during the runs. They are also *total* draw, where the number that
-actually matters on a machine left powered on all day is the increment over
-idle, which is smaller. `lmstudio-bench --power-log` now measures both; see
-the README for how to run it.
+Caveat in the other direction: `powermetrics` reports **SoC package power only**
+(CPU + GPU + ANE). It excludes DRAM, PSU losses, and the rest of the machine, so
+true incremental draw at the wall is somewhat higher than these figures — likely
+by a factor well under two, which leaves the conclusion ("about a cent")
+unchanged.
 
 ## Methodology notes
 
 - `lmstudio-bench` uses LM Studio's native `/api/v0` endpoint, which returns
   real `stats`; the OpenAI-compatible `/v1` route returns an empty `stats`
-  object.
+  object and no logprobs.
 - Every prompt body is seeded from a per-run nonce. LM Studio reuses KV cache
   across requests — an identical repeated prompt prefills **11.6×** faster
   (6471 vs 557 tok/s measured). Any benchmark whose prompts share a prefix
   reports inflated prefill rates.
 - Variants cannot be selected with `lms load`, which matches only base model
   keys and silently loads whichever variant is "selected". The REST API does
-  resolve `model@quant`, so `run-matrix.sh` passes variant ids straight through
-  and lets JIT loading pick the build.
-- `ttft_spread` was 0.1–9.3% on every row; the two rows above 8% are the
-  837-token cases, where a small absolute TTFT makes the ratio noisy.
+  resolve `model@quant`, so variant ids are passed straight through and JIT
+  loading picks the build.
+- The idle baseline is taken from samples outside the benchmark windows, with a
+  10 s guard band and at the 25th percentile rather than the mean. The
+  out-of-window samples are not all idle — model loading falls in the gaps, and
+  a shared power log contains other runs — so a low quantile finds the floor
+  where an average would land in the traffic.
 
 ## Caveats
 
-- Reproducibility is good but not perfect: re-running `35b-a3b@4bit` gave
-  516/591/591 tok/s prefill against 518/593/589 in the earlier clean pass, and
-  63.9/63.9/59.8 decode against 63.6/62.1/58.5.
-- The ~11 ms MoE overhead figure is fitted to two data points. It is
-  suggestive, not established.
-- Power figures are estimated, not measured — see above.
-- An early pass built prompts by repeating a fixed filler string, so each size
-  shared a prefix with the one before and prefill came out 15–20% high. Those
-  results have been deleted rather than kept, so they cannot be cited by
-  mistake; the finding that produced them is recorded under Methodology notes.
+- Reproducibility is good: this run's decode figures land within ~1–4% of the
+  2026-08-02 run (MoE 4-bit 64.4 vs 63.9 at 3,218 tokens; dense 4-bit 18.6 vs
+  18.5), with power instrumentation adding no measurable perturbation.
+- Power is SoC package only — see above.
+- **No quality measurement.** Everything here is speed and energy. The 4-bit vs
+  8-bit choice cannot be settled on these numbers alone, since they show the two
+  builds cost nearly the same energy; which is *better* is a separate question
+  this benchmark does not address.

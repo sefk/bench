@@ -202,21 +202,25 @@ class PowerLog:
                 continue
         return None
 
-    def compute_idle(self, windows, guard=10.0):
+    def compute_idle(self, windows, guard=10.0, quantile=0.25):
         """Baseline draw, from samples well outside every benchmark window.
 
-        Two defences against contamination, because a baseline that is too high
-        silently understates the incremental energy:
+        A baseline that is too high silently understates the incremental
+        energy, so this errs low:
 
-        - a guard band, since the GPU does not fall to idle the instant a run
-          ends and ramps before the first token of the next one;
-        - the median rather than the mean, so any busy sample that still leaks
-          through cannot drag the figure up.
+        - a guard band, since the GPU neither drops to idle the instant a run
+          ends nor ramps instantly at the next one;
+        - a low quantile rather than the mean or median. The out-of-window
+          samples are not all idle: model loading falls in the gaps, and when
+          several benchmarks share one power log, each run's gaps contain the
+          *other* runs. Idle is the floor of that mixture, so a low quantile
+          finds it where an average would land somewhere in the traffic.
         """
-        outside = [w for mid, _, w in self.samples
-                   if not any(s - guard <= mid <= e + guard for s, e in windows)]
+        outside = sorted(w for mid, _, w in self.samples
+                         if not any(s - guard <= mid <= e + guard for s, e in windows))
         if outside:
-            self.idle_watts = statistics.median(outside)
+            idx = min(len(outside) - 1, int(len(outside) * quantile))
+            self.idle_watts = outside[idx]
         return self.idle_watts
 
     def window(self, start, end):
