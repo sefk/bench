@@ -7,7 +7,9 @@ SECRET_KEY = "dev-only-not-secret"
 
 DEBUG = True
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+# Local exploratory tool, no auth -- accept any host so `runserver 0.0.0.0:8000`
+# works from other machines on the LAN.
+ALLOWED_HOSTS = ["*"]
 
 # Directory that holds results/<date>/<slug>.json files. Defaults to the
 # sibling `results/` directory at the repo root, one level up from
