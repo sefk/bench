@@ -119,6 +119,7 @@ written back.
 ```sh
 cd dashboard && uv sync && uv run manage.py runserver
 cd dashboard && uv run manage.py runserver 0.0.0.0:8000   # reachable from the LAN
+cd dashboard && honcho start                            # same via Procfile; PORT=8123 honcho start to change port
 ```
 
 Then open <http://127.0.0.1:8000/>. Run `uv run manage.py test` to run its
