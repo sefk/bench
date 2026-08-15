@@ -1,0 +1,3 @@
+NOT measuring power -- throughput only. Any energy figure derived from these results is an assumption, not a measurement. Pass --power-log FILE to measure it.
+
+qwen/qwen3.8-27b@q4_k_m

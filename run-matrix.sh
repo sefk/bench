@@ -49,6 +49,7 @@ VARIANTS=(
   "qwen/qwen3.6-35b-a3b@4bit"
   "qwen/qwen3.6-35b-a3b@8bit"
   "qwen/qwen3.6-27b@8bit"
+  "qwen/qwen3.8-27b@q4_k_m"
 )
 
 mkdir -p "$OUTDIR"

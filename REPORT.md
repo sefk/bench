@@ -117,6 +117,41 @@ true incremental draw at the wall is somewhat higher than these figures — like
 by a factor well under two, which leaves the conclusion ("about a cent")
 unchanged.
 
+## Addendum 2026-08-14: Qwen3.8-27B (GGUF Q4_K_M)
+
+Measured 2026-08-14, same machine and settings, **throughput only** — no
+`powermetrics` sampler was running, so there are no watts or tok/Wh for this
+row. Raw data in `results/2026-08-14/`.
+
+This is a different runtime as well as a different model: `qwen/qwen3.8-27b`
+is a llama.cpp GGUF build (Q4_K_M, 17.74 GB), not MLX. The dense 27B rows
+above are MLX 4-bit/8-bit. Treat the comparison as "the GGUF Q4_K_M build of
+3.8 vs the MLX 4-bit build of 3.6", not as a pure model-generation change.
+
+| Prompt tok | decode tok/s | prefill tok/s | TTFT | vs 3.6-27b MLX 4-bit |
+|---|---|---|---|---|
+| 72 | 11.5 | 50 | 1.4 s | decode 0.67× |
+| 879 | 10.1 | 118 | 7.5 s | decode 0.55×, prefill 1.35× |
+| 3,260 | 10.5 | 123 | 26.6 s | decode 0.57×, prefill 1.36× |
+| 12,895 | 9.7 | 118 | 110 s | decode 0.55×, prefill 1.32× |
+
+- **Decode is ~45% slower** than the MLX 4-bit dense 3.6 (≈10 vs ≈18 tok/s),
+  landing right on the MLX *8-bit* dense number (10.7). Q4_K_M weights are
+  slightly larger than MLX 4-bit (17.7 vs 16.1 GB), but not enough to explain
+  that; the rest is the llama.cpp Metal path vs MLX on this GPU.
+- **Prefill is ~35% faster** (≈120 vs ≈90 tok/s), so TTFT on the 12.9k prompt
+  drops from 145 s to 110 s. Still far from the MoE's ≈600 tok/s.
+- `ttft_spread` ≤ 1.2% on the sized rows — no cache-hit contamination.
+- The model stopped early on every row (98–192 tokens generated rather than
+  256), so per-row wall time is shorter than the 3.6 dense runs; decode tok/s
+  is unaffected.
+- No energy figure. From the 3.6 dense rows one would guess a similar draw and
+  therefore worse tok/Wh than MLX 4-bit given the slower decode, but that is an
+  assumption, not a measurement.
+
+The MoE `qwen3.6-35b-a3b@4bit` remains the default; this build does not change
+that on speed.
+
 ## Methodology notes
 
 - `lmstudio-bench` uses LM Studio's native `/api/v0` endpoint, which returns
