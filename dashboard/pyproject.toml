@@ -1,0 +1,11 @@
+[project]
+name = "bench-dashboard"
+version = "0.1.0"
+description = "Exploratory dashboard for local LLM benchmark results"
+requires-python = ">=3.11"
+dependencies = [
+    "django>=5.0,<6.0",
+]
+
+[tool.uv]
+package = false

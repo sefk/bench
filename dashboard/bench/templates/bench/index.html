@@ -1,0 +1,79 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Bench Dashboard</title>
+    <link rel="stylesheet" href="{% static 'bench/style.css' %}">
+</head>
+<body>
+<header>
+    <h1>Local LLM Benchmark Dashboard</h1>
+    <p>Exploring results under <code>results/&lt;date&gt;/*.json</code></p>
+</header>
+<div class="layout">
+    <aside id="filters"></aside>
+    <main>
+        <div class="controls">
+            <div class="control">
+                <label for="measure">Measure</label>
+                <select id="measure"></select>
+            </div>
+            <div class="control">
+                <label for="seriesBy">Series by</label>
+                <select id="seriesBy">
+                    <option value="variant" selected>variant</option>
+                    <option value="quant">quant</option>
+                    <option value="arch">arch</option>
+                    <option value="version">version</option>
+                    <option value="runtime">runtime</option>
+                    <option value="date">date</option>
+                </select>
+            </div>
+            <div class="control checkbox">
+                <input type="checkbox" id="logY">
+                <label for="logY">Log Y</label>
+            </div>
+            <div class="control">
+                <label for="compareSize">Compare size</label>
+                <select id="compareSize"></select>
+            </div>
+        </div>
+
+        <h2>By prompt size</h2>
+        <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
+
+        <h2>Compare at a size bucket</h2>
+        <div class="chart-wrap small"><canvas id="compareChart"></canvas></div>
+
+        <h2>Rows</h2>
+        <p class="hint">Click a column header to sort. Rows with ttft_spread &gt; 0.25 are flagged as suspect cache hits (see README).</p>
+        <div class="table-wrap">
+            <table id="rowsTable">
+                <thead>
+                <tr>
+                    <th data-key="date">date</th>
+                    <th data-key="variant">variant</th>
+                    <th data-key="version">version</th>
+                    <th data-key="arch">arch</th>
+                    <th data-key="quant">quant</th>
+                    <th data-key="runtime">runtime</th>
+                    <th data-key="size">size</th>
+                    <th data-key="prompt_tokens">prompt_tokens</th>
+                    <th data-key="completion_tokens">completion_tokens</th>
+                    <th data-key="gen_tps">gen_tps</th>
+                    <th data-key="prefill_tps">prefill_tps</th>
+                    <th data-key="ttft">ttft</th>
+                    <th data-key="ttft_spread">ttft_spread</th>
+                    <th data-key="watts">watts</th>
+                    <th data-key="tokens_per_wh">tokens_per_wh</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </main>
+</div>
+<script src="{% static 'bench/chart.umd.js' %}"></script>
+<script src="{% static 'bench/app.js' %}"></script>
+</body>
+</html>

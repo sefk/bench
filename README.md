@@ -109,5 +109,40 @@ model mid-benchmark and cause exactly this. Check with `lms ps` and
 
 See [REPORT.md][report]. Raw per-run JSON is under `results/<date>/`.
 
+## Dashboard
+
+`dashboard/` is a small localhost-only [Django][django] app for exploring
+results interactively — filterable charts and a sortable table, no build
+step. It reads every `results/<date>/*.json` file directly; nothing is
+written back.
+
+```sh
+cd dashboard && uv sync && uv run manage.py runserver
+```
+
+Then open <http://127.0.0.1:8000/>. Run `uv run manage.py test` to run its
+test suite.
+
+The loader (`dashboard/bench/loader.py`) derives extra dimensions from each
+row's `model` field so results can be filtered and grouped:
+
+- `family` / `base` — e.g. `qwen` / `qwen3.6-35b-a3b`, split on the first `/`
+  and `@` in `model`.
+- `version` — e.g. `3.6`, pulled from the base with a `qwen(\d+\.\d+)`-style
+  regex; `unknown` if it doesn't match.
+- `arch` — `moe` if the base has an active-params suffix (`-a3b`), else
+  `dense`.
+- `params` / `active` — total and active parameter counts, e.g. `35b` / `3b`
+  (active equals params for dense models).
+- `quant` — the part after `@` (`4bit`, `8bit`, `q4_k_m`), `unknown` if none.
+- `runtime` — `gguf` for llama.cpp-style quant names (`q4_k_m`), `mlx`
+  otherwise.
+- `variant` — a short label combining base and quant, e.g.
+  `qwen3.6-35b-a3b@4bit`.
+
+Results are cached in memory and re-read automatically when a result file's
+mtime changes, so new runs show up on refresh without restarting the server.
+
+[django]: https://www.djangoproject.com
 [lms]: https://lmstudio.ai
 [report]: REPORT.md
