@@ -1,35 +1,13 @@
-# Qwen3.6 MoE vs dense on M1 Max: speed, power, and energy
+# Qwen local inference on M1 Max: architecture, quantization, and disk
 
-Measured 2026-08-03 on a Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified
-memory (~400 GB/s theoretical). LM Studio + MLX, 262144 context, median of 3
-runs per row, 256 tokens generated. Throughput comes from LM Studio's own perf
-counters; power from `powermetrics` sampled across the run. Raw data in
-`results/2026-08-03/`.
+Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified memory (~400 GB/s
+theoretical). LM Studio + MLX unless noted. Throughput from LM Studio's own
+perf counters; power from `powermetrics` sampled across the run. See the
+[Log](#log) below for what was measured when and where the raw data lives.
 
-| Variant | Arch | Params | Active | Quant | Weights |
-|---|---|---|---|---|---|
-| `qwen3.6-35b-a3b@4bit` | MoE | 35B | ~3B | 4-bit | 20.43 GB |
-| `qwen3.6-35b-a3b@8bit` | MoE | 35B | ~3B | 8-bit | 37.75 GB |
-| `qwen3.6-27b@4bit` | dense | 27B | 27B | 4-bit | 16.08 GB |
-| `qwen3.6-27b@8bit` | dense | 27B | 27B | 8-bit | 29.53 GB |
+## Findings
 
-## Full matrix
-
-Each cell: decode tok/s · prefill tok/s · watts · generated tokens per Wh.
-
-| Prompt tok | MoE 4-bit | MoE 8-bit | Dense 4-bit | Dense 8-bit |
-|---|---|---|---|---|
-| 30 | 57.4 · – · 23.7 · 10707 | 48.5 · – · 22.0 · 10019 | 17.1 · – · 40.7 · 1708 | 9.8 · – · 28.8 · 1512 |
-| 837 | 65.0 · 518 · 31.8 · 5462 | 52.4 · 520 · 27.2 · 5838 | 18.4 · 87 · 43.9 · 925 | 10.9 · 89 · 33.7 · 915 |
-| 3,218 | 64.4 · 599 · 37.0 · 2920 | 52.2 · 594 · 34.8 · 2723 | 18.6 · 90 · 46.4 · 418 | 10.7 · 91 · 40.2 · 423 |
-| 12,853 | 59.2 · 593 · 44.3 · 845 | 48.6 · 592 · 42.8 · 855 | 17.4 · 89 · 49.1 · 122 | 10.3 · 90 · 45.7 · 129 |
-
-`tok/Wh` counts **generated** tokens against energy **above idle**, so it falls
-with prompt length: a 12,853-token prompt spends most of its energy on prefill
-before producing any of its 256 output tokens. Compare across a row, not down a
-column.
-
-## Quantization buys speed, not energy
+### Quantization buys speed, not energy
 
 The clearest result, and it holds independently in both architectures. At the
 3,218-token row:
@@ -50,7 +28,7 @@ For the MoE the electricity difference is nil — 8-bit is actually ahead at 837
 and 12,853 tokens — while decode is 19% slower. If 8-bit is better for the work
 in question, the running cost of preferring it is zero.
 
-## Architecture is where the efficiency actually is
+### Architecture is where the efficiency actually is
 
 At the same 3,218-token row, MoE 4-bit vs dense 4-bit:
 
@@ -71,12 +49,55 @@ unaffected by quantization in either direction (518/599/593 for MoE 4-bit
 against 520/594/592 for 8-bit; 87/90/89 dense 4-bit against 89/91/90 8-bit).
 Prefill is compute-bound, so fewer active parameters help and fewer bits do not.
 
-## Power scales with prompt length
+### Power scales with prompt length
 
 Draw climbs steadily with context in every variant — MoE 4-bit goes 23.7 → 44.3
 W from the shortest prompt to the longest. Prefill saturates the GPU harder than
 decode does, so a long-prompt workload runs the machine hotter as well as
 longer. Idle baseline measured 1.9–3.2 W across runs.
+
+### Qwen3.6 vs 3.8: the decode gap was the runtime, not the model
+
+The 2026-08-14 addendum benchmarked `qwen3.8-27b` as a llama.cpp GGUF Q4_K_M
+and found decode ~45% slower than the MLX 4-bit build of 3.6 (≈10 vs ≈18
+tok/s), with prefill ~35% faster. That comparison confounded model generation
+with runtime (GGUF vs MLX).
+
+The 2026-08-19 disk experiment isolated it by measuring an MLX 4-bit build of
+3.8-27b directly: **18.4–19.0 tok/s decode** — 1.8× the GGUF figure, and
+matching 3.6-27b MLX 4-bit (≈18.5 tok/s). So:
+
+- **Qwen3.8-27B in MLX matches Qwen3.6-27B in MLX on decode.** The generation
+  change is a wash on speed.
+- **The GGUF's prefill advantage is real and survives** (88–89 tok/s MLX vs
+  ~120 GGUF) — it buys that with roughly half the decode rate. That's a
+  runtime/format tradeoff, not a model one.
+
+### Internal vs external disk: inference is unaffected, cold load pays a small, sub-linear cost
+
+Measured 2026-08-19 with `qwen/qwen3.8-27b` MLX 4-bit (14.98 GiB) on internal
+NVMe (6.60 GB/s sequential, cache bypassed) vs a USB SSD `ext1` (APFS, 1.8 TB,
+3.46 GB/s).
+
+| Location | Cold load | Decode (3,200 prompt) | Prefill | TTFT |
+|---|---|---|---|---|
+| Internal | **18.4 s** | 18.4 tok/s | 88 | 29.68 s |
+| `ext1` | **24 s** (+5.6 s) | 18.5 tok/s | 89 | 29.10 s |
+
+- **Once loaded, the disk doesn't matter.** Decode, prefill, and TTFT are
+  identical within run-to-run noise (2–6%); weights live in unified memory
+  after load, so the source disk stops mattering the moment loading finishes.
+- **Cold load is 1.3× slower on `ext1`, not the 1.9× the raw disk gap
+  suggests**, because loading isn't disk-bound: internal cold load (18.4 s)
+  and internal *warm* load (18.1 s) differ by only 0.3 s, so the read is only
+  ~2% of the 18 s — the rest is MLX weight setup and GPU upload, which storage
+  doesn't touch. Streaming 15 GB predicts ~2 s of extra delay from the slower
+  disk; the measured 5.6 s delta is the right order, with the remainder likely
+  USB per-I/O latency.
+- **Practical cost: ~6 s per cold load, once per model per session** (LM
+  Studio keeps models resident for an hour), nothing thereafter. This result
+  would look different on a slow USB 3.0 enclosure (~0.4 GB/s) — cold load
+  would grow to roughly 37 s — but inference would still be unaffected.
 
 ## Practical takeaways
 
@@ -89,6 +110,9 @@ longer. Idle baseline measured 1.9–3.2 W across runs.
   token on a 12.8k prompt.
 - **Quantizing further is not an energy optimization.** If the goal is lower
   power draw rather than lower latency, quantization is the wrong lever.
+- **Disk choice for the model library is a non-issue for inference**, and only
+  a several-second tax on cold load — safe to keep models on a fast external
+  drive if internal storage is tight.
 
 ## What this benchmark cost
 
@@ -117,41 +141,6 @@ true incremental draw at the wall is somewhat higher than these figures — like
 by a factor well under two, which leaves the conclusion ("about a cent")
 unchanged.
 
-## Addendum 2026-08-14: Qwen3.8-27B (GGUF Q4_K_M)
-
-Measured 2026-08-14, same machine and settings, **throughput only** — no
-`powermetrics` sampler was running, so there are no watts or tok/Wh for this
-row. Raw data in `results/2026-08-14/`.
-
-This is a different runtime as well as a different model: `qwen/qwen3.8-27b`
-is a llama.cpp GGUF build (Q4_K_M, 17.74 GB), not MLX. The dense 27B rows
-above are MLX 4-bit/8-bit. Treat the comparison as "the GGUF Q4_K_M build of
-3.8 vs the MLX 4-bit build of 3.6", not as a pure model-generation change.
-
-| Prompt tok | decode tok/s | prefill tok/s | TTFT | vs 3.6-27b MLX 4-bit |
-|---|---|---|---|---|
-| 72 | 11.5 | 50 | 1.4 s | decode 0.67× |
-| 879 | 10.1 | 118 | 7.5 s | decode 0.55×, prefill 1.35× |
-| 3,260 | 10.5 | 123 | 26.6 s | decode 0.57×, prefill 1.36× |
-| 12,895 | 9.7 | 118 | 110 s | decode 0.55×, prefill 1.32× |
-
-- **Decode is ~45% slower** than the MLX 4-bit dense 3.6 (≈10 vs ≈18 tok/s),
-  landing right on the MLX *8-bit* dense number (10.7). Q4_K_M weights are
-  slightly larger than MLX 4-bit (17.7 vs 16.1 GB), but not enough to explain
-  that; the rest is the llama.cpp Metal path vs MLX on this GPU.
-- **Prefill is ~35% faster** (≈120 vs ≈90 tok/s), so TTFT on the 12.9k prompt
-  drops from 145 s to 110 s. Still far from the MoE's ≈600 tok/s.
-- `ttft_spread` ≤ 1.2% on the sized rows — no cache-hit contamination.
-- The model stopped early on every row (98–192 tokens generated rather than
-  256), so per-row wall time is shorter than the 3.6 dense runs; decode tok/s
-  is unaffected.
-- No energy figure. From the 3.6 dense rows one would guess a similar draw and
-  therefore worse tok/Wh than MLX 4-bit given the slower decode, but that is an
-  assumption, not a measurement.
-
-The MoE `qwen3.6-35b-a3b@4bit` remains the default; this build does not change
-that on speed.
-
 ## Methodology notes
 
 - `lmstudio-bench` uses LM Studio's native `/api/v0` endpoint, which returns
@@ -170,14 +159,63 @@ that on speed.
   out-of-window samples are not all idle — model loading falls in the gaps, and
   a shared power log contains other runs — so a low quantile finds the floor
   where an average would land in the traffic.
+- Disk read throughput is measured with `F_NOCACHE` (`fcntl` 48) so the macOS
+  unified buffer cache is out of the path; a cached read returns at memory
+  speed and measures nothing. Page cache is flushed before cold-load
+  measurements by streaming 77 GB through it (more than the machine's RAM),
+  since `purge` needs root.
 
 ## Caveats
 
-- Reproducibility is good: this run's decode figures land within ~1–4% of the
-  2026-08-02 run (MoE 4-bit 64.4 vs 63.9 at 3,218 tokens; dense 4-bit 18.6 vs
-  18.5), with power instrumentation adding no measurable perturbation.
+- Reproducibility is good: the 2026-08-03 run's decode figures land within
+  ~1–4% of the 2026-08-02 run (MoE 4-bit 64.4 vs 63.9 at 3,218 tokens; dense
+  4-bit 18.6 vs 18.5), with power instrumentation adding no measurable
+  perturbation.
 - Power is SoC package only — see above.
 - **No quality measurement.** Everything here is speed and energy. The 4-bit vs
   8-bit choice cannot be settled on these numbers alone, since they show the two
   builds cost nearly the same energy; which is *better* is a separate question
   this benchmark does not address.
+- The disk experiment ran with another workload sharing the same LM Studio
+  server (chat completions against `qwen/qwen3.6-27b`, plus `nomic-embed`
+  requests); timed runs had only the model under test resident, but GPU
+  contention cannot be fully excluded. Its cold-load numbers are also a single
+  measurement per location, not a median.
+
+## Log
+
+### 2026-08-03 — Qwen3.6 MoE vs dense, full matrix
+
+Compared `qwen3.6-35b-a3b` (MoE, ~3B active) against `qwen3.6-27b` (dense) at
+4-bit and 8-bit, across four prompt lengths (30 to 12,853 tokens), measuring
+decode/prefill throughput and power via `powermetrics`. Raw data in
+`results/2026-08-03/`.
+
+Learned: architecture (MoE vs dense) drives a 7× energy-per-token difference,
+while quantization (4-bit vs 8-bit) is roughly energy-neutral and only trades
+latency. Power draw scales with prompt length in every variant. MoE 4-bit is
+the clear default.
+
+### 2026-08-14 — Addendum: Qwen3.8-27B (GGUF Q4_K_M), throughput only
+
+Benchmarked `qwen/qwen3.8-27b` as a llama.cpp GGUF build, same machine and
+settings as above, but no power sampler running. Raw data in
+`results/2026-08-14/`.
+
+Learned: decode looked ~45% slower and prefill ~35% faster than the MLX 4-bit
+dense 3.6 build. At the time this read as a model-generation regression on
+decode. It was later shown (2026-08-19) to be a runtime artifact — GGUF vs
+MLX — not a property of Qwen3.8 itself.
+
+### 2026-08-19 — Internal vs external (USB) disk for model storage
+
+Measured cold/warm load time and inference throughput for `qwen/qwen3.8-27b`
+MLX 4-bit from internal NVMe vs a USB-attached SSD (`ext1`, 3.46 GB/s
+sequential). Raw data and full write-up in `results/2026-08-19/external-disk.md`.
+
+Learned two things: (1) disk location is irrelevant to inference once a model
+is loaded, and costs only ~6 s extra on cold load with this disk (sub-linear
+vs the 1.9× raw throughput gap, because loading is mostly MLX setup/GPU
+upload, not I/O); (2) as a side effect of using an MLX build of 3.8-27b for
+this test, resolved the 2026-08-14 addendum's apparent decode regression —
+it was the GGUF runtime, not the model.
