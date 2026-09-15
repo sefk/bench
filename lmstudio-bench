@@ -489,6 +489,15 @@ def one_run(model, prompt, max_tokens, backend="lmstudio"):
         prompt_tokens = fm_count_tokens(prompt)
         completion_tokens = fm_count_tokens(result["text"])
     if not completion_tokens:
+        if backend == "fm":
+            # Apple's on-device model has a 4096-token context and does not
+            # say so when a prompt exceeds it: the response is HTTP 200 with a
+            # well-formed but empty stream. Measured boundary -- 3,765 prompt
+            # tokens answer, 4,376 return nothing.
+            raise RuntimeError(
+                f"empty response from fm for a {prompt_tokens}-token prompt; "
+                "its context window is 4096 tokens and it overflows silently"
+            )
         raise RuntimeError("no completion tokens reported or counted")
 
     ttft_client = result["ttft_client"]

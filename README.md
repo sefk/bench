@@ -43,9 +43,12 @@ LM Studio builds. Two things differ from LM Studio: it always streams, and it
 reports no token usage at all, so prompt and completion lengths come from
 `fm count-tokens` (Apple's own tokenizer) rather than from the response.
 
-It also has a far smaller context window than the Qwen builds, so the larger
-prompt sizes simply do not run — those rows are reported as skipped rather than
-filled in.
+Its context window is **4096 tokens**, far smaller than the Qwen builds, and it
+**overflows silently**: a prompt that does not fit returns HTTP 200 with a
+well-formed but empty stream, no error of any kind. Measured boundary — 3,765
+prompt tokens answer normally, 4,376 return nothing. `lmstudio-bench` detects
+the empty response and names the cause, so the larger prompt sizes are reported
+as skipped rather than silently filled in.
 
 #### Variants
 
