@@ -1,7 +1,12 @@
 (function () {
     "use strict";
 
-    const FILTER_DIMS = ["version", "arch", "quant", "runtime", "date"];
+    // `precision` and `runtime` are both offered because they answer different
+    // questions: 4bit (MLX) and q4_k_m (GGUF) share a precision but not a
+    // runtime, and the two differ by ~1.8x on decode.
+    const FILTER_DIMS = [
+        "version", "arch", "quant", "precision", "runtime", "date",
+    ];
     const SIZE_ORDER = ["short", "1000tok", "4000tok", "16000tok"];
     const PALETTE = [
         "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed",
@@ -348,9 +353,10 @@
     // ---- table -----------------------------------------------------------
 
     const TABLE_COLUMNS = [
-        "date", "variant", "version", "arch", "quant", "runtime", "size",
+        "date", "variant", "version", "arch", "quant", "precision", "runtime", "size",
         "prompt_tokens", "completion_tokens", "gen_tps", "prefill_tps",
-        "ttft", "ttft_spread", "watts", "tokens_per_wh",
+        "ttft", "total_s", "quality_pct", "quality_gsm8k", "quality_mmlu",
+        "ttft_spread", "watts", "tokens_per_wh",
     ];
 
     function renderTable(rows) {
