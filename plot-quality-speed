@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""Plot decode speed against measured quality, one point per variant.
+
+The question this chart exists to answer is the one the throughput tables
+cannot: you can see that the MoE decodes 3.5x faster than the dense build, but
+not whether it gives up anything to get there. Speed on one axis and quality on
+the other puts both on the same picture, and the interesting region is the top
+right -- fast *and* correct.
+
+  X  composite % correct on the fixed GSM8K + MMLU set (`quality-bench`),
+     with its 95% Wilson interval drawn as a horizontal bar. The bar matters:
+     at 750 items a 2-point difference is not a difference, and a chart without
+     it invites reading rank order off noise.
+  Y  decode tokens/sec at one prompt size (default 4000tok).
+
+Writes a standalone SVG -- no plotting library, no build step, and the output
+is a text file that diffs when the numbers change.
+
+Usage:
+    ./plot-quality-speed results/2026-09-14 -o results/2026-09-14/quality-vs-speed.svg
+"""
+
+import argparse
+import json
+import math
+import re
+import sys
+from pathlib import Path
+
+W, H = 880, 580
+PAD = {"left": 78, "right": 26, "top": 76, "bottom": 66}
+PLOT_W = W - PAD["left"] - PAD["right"]
+PLOT_H = H - PAD["top"] - PAD["bottom"]
+
+# Colour by architecture, since that is the dimension the chart is most often
+# read for. Apple's model gets its own, being neither of the other two.
+COLOURS = {
+    "moe": "#2b7bba",
+    "dense": "#c1452e",
+    "apple": "#5b9e4a",
+}
+
+
+def esc(text):
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def load(results_dir, size, quality_name="quality.json"):
+    """Join throughput rows at one prompt size onto quality scores."""
+    results_dir = Path(results_dir)
+
+    quality = {}
+    qpath = results_dir / quality_name
+    if not qpath.exists():
+        sys.exit(f"no quality summary at {qpath}")
+    for entry in json.loads(qpath.read_text()):
+        if entry.get("mode", "no-think") != "no-think":
+            continue
+        quality[entry.get("target") or entry["model"]] = entry
+
+    points = []
+    for path in sorted(results_dir.glob("*.json")):
+        if path.name.startswith("quality"):
+            continue
+        try:
+            rows = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if row.get("size") != size:
+                continue
+            model = row.get("model", "")
+            entry = quality.get(model)
+            if not entry or not row.get("gen_tps"):
+                continue
+            composite = entry["composite"]
+            points.append(
+                {
+                    "model": model,
+                    "label": short_label(model),
+                    "arch": arch_of(model),
+                    "tps": row["gen_tps"],
+                    "quality": composite["pct"],
+                    "lo": composite["ci95"][0],
+                    "hi": composite["ci95"][1],
+                    "counts": {
+                        task: (entry.get(task) or {}).get("n")
+                        for task in ("gsm8k", "mmlu")
+                    },
+                }
+            )
+    return points
+
+
+def arch_of(model):
+    """MoE builds carry an active-parameter suffix, e.g. `-a3b` in `35b-a3b`."""
+    if model.startswith("fm:"):
+        return "apple"
+    return "moe" if re.search(r"-a\d+b(?:@|$)", model) else "dense"
+
+
+def short_label(model):
+    """Drop the vendor prefix; keep the part that distinguishes variants."""
+    if model.startswith("fm:"):
+        return "Apple on-device"
+    return model.split("/", 1)[-1].replace("qwen", "")
+
+
+def nice_bounds(lo, hi, pad_frac=0.12):
+    """Pad the data range, then snap outward to whole steps.
+
+    Both ends land exactly on a tick, so the last gridline is the axis end
+    rather than floating short of it.
+    """
+    if hi <= lo:
+        lo, hi = lo - 1, hi + 1
+    span = hi - lo
+    lo -= span * pad_frac
+    hi += span * pad_frac
+
+    raw_step = (hi - lo) / 5
+    magnitude = 10 ** math.floor(math.log10(raw_step)) if raw_step > 0 else 1
+    for mult in (1, 2, 2.5, 5, 10):
+        step = magnitude * mult
+        if step >= raw_step:
+            break
+
+    lo = math.floor(lo / step) * step
+    hi = math.ceil(hi / step) * step
+    return lo, hi, step
+
+
+def place_labels(points, sx, sy, left, right):
+    """Greedy label placement: the first candidate that fits and collides with
+    nothing wins.
+
+    Candidates run right-of-point first, then left, then above and below. A
+    label is rejected outright if it would cross the plot edge, which is what
+    keeps the rightmost (highest-quality) points readable -- they are the ones
+    the chart is mostly about.
+    """
+    placed = []
+    for point in sorted(points, key=lambda p: -p["quality"]):
+        px, py = sx(point["quality"]), sy(point["tps"])
+        width = 7.3 * len(point["label"])
+        candidates = [
+            (px + 10, py + 4, "start"),
+            (px + 10, py - 11, "start"),
+            (px + 10, py + 17, "start"),
+            (px - 10 - width, py + 4, "start"),
+            (px - 10 - width, py - 11, "start"),
+            (px - width / 2, py - 14, "start"),
+            (px - width / 2, py + 22, "start"),
+        ]
+        chosen = None
+        for x, y, anchor in candidates:
+            if x < left or x + width > right:
+                continue
+            box = (x, y - 10, x + width, y + 3)
+            if any(
+                box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3]
+                for o in placed
+            ):
+                continue
+            chosen = (x, y, anchor, box)
+            break
+        if chosen is None:
+            # Nothing fits cleanly; keep it on the plot rather than drop it.
+            x = min(max(px + 10, left), right - width)
+            chosen = (x, py + 4, "start", (x, py - 6, x + width, py + 7))
+        placed.append(chosen[3])
+        point["_label"] = chosen[:3]
+    return points
+
+
+def render(points, size, out_path, title=None):
+    if not points:
+        sys.exit("no points to plot -- is there a quality summary and matching runs?")
+
+    # The caption describes the item set, so take the largest count seen
+    # rather than whichever point happens to be first -- a target that lost
+    # items to a server fault must not silently relabel the whole chart.
+    counts = {
+        task: max(
+            (p.get("counts") or {}).get(task) or 0 for p in points
+        )
+        for task in ("gsm8k", "mmlu")
+    }
+    parts = [f"{counts[k]} {k.upper()}" for k in ("gsm8k", "mmlu") if counts.get(k)]
+    caption = "Quality — % correct" + (
+        f", {' + '.join(parts)}, measured on this machine" if parts else ""
+    )
+
+    qs = [p["lo"] for p in points] + [p["hi"] for p in points]
+    ts = [p["tps"] for p in points]
+    x0, x1, xstep = nice_bounds(min(qs), max(qs))
+    y0, y1, ystep = nice_bounds(0, max(ts))
+    y0 = 0  # decode rate is a rate; a non-zero origin exaggerates gaps
+
+    def sx(v):
+        return PAD["left"] + (v - x0) / (x1 - x0) * PLOT_W
+
+    def sy(v):
+        return PAD["top"] + PLOT_H - (v - y0) / (y1 - y0) * PLOT_H
+
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+        f'viewBox="0 0 {W} {H}" font-family="-apple-system,BlinkMacSystemFont,'
+        f'Segoe UI,Helvetica,Arial,sans-serif">',
+        f'<rect width="{W}" height="{H}" fill="#ffffff"/>',
+    ]
+
+    heading = title or f"Quality vs decode speed — {size} prompt, M1 Max"
+    out.append(
+        f'<text x="{PAD["left"]}" y="26" font-size="15" font-weight="600" '
+        f'fill="#111">{esc(heading)}</text>'
+    )
+    out.append(
+        f'<text x="{PAD["left"]}" y="43" font-size="11" fill="#666">'
+        f'Bars are 95% confidence intervals on the quality score. '
+        f'Up and to the right is better.</text>'
+    )
+
+    # Gridlines and ticks.
+    v = y0
+    while v <= y1 + 1e-9:
+        y = sy(v)
+        out.append(
+            f'<line x1="{PAD["left"]}" y1="{y:.1f}" x2="{PAD["left"] + PLOT_W}" '
+            f'y2="{y:.1f}" stroke="#e8e8e8" stroke-width="1"/>'
+        )
+        out.append(
+            f'<text x="{PAD["left"] - 9}" y="{y + 4:.1f}" font-size="11" '
+            f'fill="#666" text-anchor="end">{v:g}</text>'
+        )
+        v += ystep
+
+    v = x0
+    while v <= x1 + 1e-9:
+        x = sx(v)
+        out.append(
+            f'<line x1="{x:.1f}" y1="{PAD["top"]}" x2="{x:.1f}" '
+            f'y2="{PAD["top"] + PLOT_H}" stroke="#e8e8e8" stroke-width="1"/>'
+        )
+        out.append(
+            f'<text x="{x:.1f}" y="{PAD["top"] + PLOT_H + 18}" font-size="11" '
+            f'fill="#666" text-anchor="middle">{v:g}%</text>'
+        )
+        v += xstep
+
+    # Axis lines.
+    out.append(
+        f'<line x1="{PAD["left"]}" y1="{PAD["top"]}" x2="{PAD["left"]}" '
+        f'y2="{PAD["top"] + PLOT_H}" stroke="#999" stroke-width="1"/>'
+    )
+    out.append(
+        f'<line x1="{PAD["left"]}" y1="{PAD["top"] + PLOT_H}" '
+        f'x2="{PAD["left"] + PLOT_W}" y2="{PAD["top"] + PLOT_H}" '
+        f'stroke="#999" stroke-width="1"/>'
+    )
+
+    # Axis titles.
+    out.append(
+        f'<text x="{PAD["left"] + PLOT_W / 2}" y="{H - 22}" font-size="12" '
+        f'fill="#333" text-anchor="middle">{esc(caption)}</text>'
+    )
+    out.append(
+        f'<text transform="translate(20,{PAD["top"] + PLOT_H / 2}) rotate(-90)" '
+        f'font-size="12" fill="#333" text-anchor="middle">'
+        f'Decode speed — tokens/sec</text>'
+    )
+
+    place_labels(points, sx, sy, PAD["left"] + 2, PAD["left"] + PLOT_W - 2)
+
+    for p in points:
+        colour = COLOURS.get(p["arch"], "#666")
+        px, py = sx(p["quality"]), sy(p["tps"])
+        out.append(
+            f'<line x1="{sx(p["lo"]):.1f}" y1="{py:.1f}" x2="{sx(p["hi"]):.1f}" '
+            f'y2="{py:.1f}" stroke="{colour}" stroke-width="1.5" opacity="0.45"/>'
+        )
+        for edge in ("lo", "hi"):
+            ex = sx(p[edge])
+            out.append(
+                f'<line x1="{ex:.1f}" y1="{py - 4:.1f}" x2="{ex:.1f}" '
+                f'y2="{py + 4:.1f}" stroke="{colour}" stroke-width="1.5" '
+                f'opacity="0.45"/>'
+            )
+        out.append(
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="5.5" fill="{colour}" '
+            f'stroke="#fff" stroke-width="1.5"/>'
+        )
+        tx, ty, anchor = p["_label"]
+        out.append(
+            f'<text x="{tx:.1f}" y="{ty:.1f}" font-size="11.5" fill="#222" '
+            f'text-anchor="{anchor}">{esc(p["label"])}</text>'
+        )
+
+    # Legend sits under the subtitle rather than inside the plot, where it
+    # would sooner or later land on top of a point.
+    lx = PAD["left"]
+    for arch in ("moe", "dense", "apple"):
+        if not any(p["arch"] == arch for p in points):
+            continue
+        name = {"moe": "MoE", "dense": "Dense", "apple": "Apple on-device"}[arch]
+        out.append(f'<circle cx="{lx + 5}" cy="{PAD["top"] - 14}" r="5" '
+                   f'fill="{COLOURS[arch]}"/>')
+        out.append(f'<text x="{lx + 15}" y="{PAD["top"] - 10}" font-size="11.5" '
+                   f'fill="#444">{name}</text>')
+        lx += 22 + 7.3 * len(name)
+
+    out.append("</svg>")
+    Path(out_path).write_text("\n".join(out) + "\n")
+    print(f"{len(points)} points -> {out_path}")
+    for p in sorted(points, key=lambda p: -p["tps"]):
+        print(
+            f"  {p['label']:<22} {p['quality']:5.1f}% "
+            f"[{p['lo']:.1f}-{p['hi']:.1f}]  {p['tps']:6.1f} tok/s"
+        )
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("results_dir")
+    ap.add_argument("-s", "--size", default="4000tok", help="prompt size row to plot")
+    ap.add_argument("-q", "--quality", default="quality.json")
+    ap.add_argument("-o", "--out", default="quality-vs-speed.svg")
+    ap.add_argument("--title")
+    args = ap.parse_args()
+
+    points = load(args.results_dir, args.size, args.quality)
+    render(points, args.size, args.out, args.title)
+
+
+if __name__ == "__main__":
+    main()

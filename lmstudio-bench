@@ -7,11 +7,28 @@ route returns an empty `stats` object. That is why pi transcripts (and so
 AgentsView) have no throughput data: pi talks to `/v1`. This script talks to
 `/api/v0` directly and reads the numbers off each response.
 
-Measures per model, at one or more prompt sizes:
+Also benchmarks Apple's on-device Foundation Model (macOS 27+) via `fm serve`,
+addressed as `fm:system`. That server speaks the same chat-completions dialect
+but reports no token usage at all, which is why every backend is additionally
+timed client-side -- see below.
+
+Measures per target, at one or more prompt sizes:
 
   gen tok/s     generation throughput once decoding starts
   ttft          time to first token (dominated by prefill of the prompt)
+  total         wall-clock from request to last token: what you actually wait
   prefill tok/s prompt tokens / ttft -- how fast it chews through context
+
+Two clocks, deliberately
+------------------------
+`ttft`/`gen_tps` come from the server's own counters where it has them, so that
+two builds under the same server compare without HTTP and queueing noise, and
+so rows stay comparable with runs recorded before this tool streamed at all.
+
+`ttft_client`/`decode_tps`/`total_s` are measured here, at the socket. They are
+slightly pessimistic -- they include transport -- but they mean the same thing
+for every backend, which is the only way an Apple-vs-Qwen latency number is
+worth printing. When a comparison spans backends, use these.
 
 Notes on methodology:
 
@@ -24,6 +41,10 @@ Notes on methodology:
   large model otherwise trips LM Studio's loading guardrails) and to keep runs
   from competing for the same GPU.
 - Reported values are medians across runs.
+- LM Studio answers a request for a variant it cannot resolve with whichever
+  model is already resident, and does not say so. Every response's `model` is
+  checked against the id that was asked for, so a deleted variant fails loudly
+  instead of quietly reporting the resident model's numbers under its name.
 """
 
 import argparse
@@ -45,6 +66,14 @@ from pathlib import Path
 HOST = "http://localhost:1234"
 MODELS_URL = f"{HOST}/api/v0/models"
 CHAT_URL = f"{HOST}/api/v0/chat/completions"
+
+# Apple's on-device Foundation Model, served by `fm serve` (macOS 27+). It
+# speaks the OpenAI chat-completions dialect but always streams and never
+# reports token usage, so its numbers have to be taken client-side. Targets
+# are addressed as "fm:system".
+FM_PORT = 1976
+FM_HOST = f"http://localhost:{FM_PORT}"
+FM_CHAT_URL = f"{FM_HOST}/v1/chat/completions"
 
 LMS_BIN = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / "lms")
 
@@ -267,43 +296,189 @@ def build_prompt(nonce, prompt_tokens):
     )
 
 
-def one_run(model, prompt, max_tokens):
-    """One request. Returns LM Studio's stats plus observed wall-clock time."""
+def stream_request(url, payload):
+    """Stream one chat completion, timing it from the client's side.
+
+    Server-reported stats are the right thing to use when comparing two builds
+    under the same server, because they exclude HTTP and queueing overhead. But
+    they are not available everywhere and are not defined identically
+    everywhere: `fm serve` reports nothing at all. So every backend is also
+    timed here, at the socket, where the clock means the same thing for all of
+    them -- which is what makes an Apple-vs-Qwen latency comparison honest.
+
+    Returns client-measured time to first token, total time to the last token,
+    the accumulated text, and whatever usage/stats the server volunteered.
+    """
+    body = dict(payload, stream=True)
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+    )
+
+    chunks = []
+    started = time.monotonic()
+    first_token_at = None
+    usage, stats, served_model = {}, {}, None
+
+    with urllib.request.urlopen(req, timeout=900) as resp:
+        for raw_line in resp:
+            line = raw_line.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            served_model = event.get("model") or served_model
+            usage = event.get("usage") or usage
+            stats = event.get("stats") or stats
+            for choice in event.get("choices", []):
+                piece = (choice.get("delta") or {}).get("content")
+                if piece:
+                    # First *content* token, not the first SSE event: the
+                    # opening chunk carries only the assistant role and would
+                    # flatter ttft by however long the role chunk arrives early.
+                    if first_token_at is None:
+                        first_token_at = time.monotonic()
+                    chunks.append(piece)
+
+    total = time.monotonic() - started
+    return {
+        "text": "".join(chunks),
+        "ttft_client": (first_token_at - started) if first_token_at else total,
+        "total_s": total,
+        "usage": usage,
+        "stats": stats,
+        "served_model": served_model,
+    }
+
+
+def fm_count_tokens(text):
+    """Prompt length per Apple's own tokenizer -- `fm serve` reports no usage."""
+    out = subprocess.run(
+        ["fm", "count-tokens", "--quiet", text],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    digits = re.findall(r"\d+", out.stdout)
+    return int(digits[-1]) if digits else 0
+
+
+def ensure_fm_server():
+    """Start `fm serve` unless something already answers on its port."""
+    try:
+        urllib.request.urlopen(f"{FM_HOST}/health", timeout=2).read()
+        return None
+    except Exception:
+        pass
+    proc = subprocess.Popen(
+        ["fm", "serve", "--port", str(FM_PORT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    for _ in range(60):
+        try:
+            urllib.request.urlopen(f"{FM_HOST}/health", timeout=2).read()
+            return proc
+        except Exception:
+            time.sleep(0.5)
+    proc.terminate()
+    raise RuntimeError(f"fm serve did not come up on port {FM_PORT}")
+
+
+def split_target(target):
+    """"fm:system" -> ("fm", "system"); anything else is an LM Studio id."""
+    backend, sep, model = target.partition(":")
+    if sep and backend in ("fm", "lmstudio"):
+        return backend, model
+    return "lmstudio", target
+
+
+def one_run(model, prompt, max_tokens, backend="lmstudio"):
+    """One timed request against either backend.
+
+    Every row carries both clocks where both exist:
+
+      ttft / gen_tps         the server's own counters (LM Studio only)
+      ttft_client / total_s  measured here, comparable across backends
+
+    `total_s` is the number the user actually waits: prompt in, last token out.
+    """
+    url = FM_CHAT_URL if backend == "fm" else CHAT_URL
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": 0,
-        "stream": False,
     }
-    started = time.monotonic()
-    body = http_json(CHAT_URL, payload)
-    wall = time.monotonic() - started
+    result = stream_request(url, payload)
 
-    stats = body.get("stats") or {}
-    usage = body.get("usage") or {}
-    if not stats.get("tokens_per_second"):
-        raise RuntimeError(f"no stats in response: {json.dumps(body)[:200]}")
+    # LM Studio answers an unresolvable `model@variant` with whichever model is
+    # already resident, silently. Benchmarking that would file one model's
+    # numbers under another model's name, so refuse to.
+    served = result["served_model"]
+    if backend == "lmstudio" and served and served != model:
+        raise RuntimeError(
+            f"asked for {model!r} but the server answered as {served!r} -- "
+            "that variant is probably not on disk"
+        )
 
-    ttft = stats.get("time_to_first_token") or 0.0
-    prompt_tokens = usage.get("prompt_tokens", 0)
+    usage = result["usage"] or {}
+    stats = result["stats"] or {}
+
+    prompt_tokens = usage.get("prompt_tokens") or 0
+    completion_tokens = usage.get("completion_tokens") or 0
+    if backend == "fm":
+        prompt_tokens = fm_count_tokens(prompt)
+        completion_tokens = fm_count_tokens(result["text"])
+    if not completion_tokens:
+        raise RuntimeError("no completion tokens reported or counted")
+
+    ttft_client = result["ttft_client"]
+    total_s = result["total_s"]
+
+    # Decode rate from the client clock: everything after the first token.
+    decode_window = total_s - ttft_client
+    decode_tps = (completion_tokens - 1) / decode_window if decode_window > 0 else 0.0
+
+    # Prefer the server's figures when it has them, so rows stay comparable
+    # with runs recorded before client-side timing existed.
+    ttft = stats.get("time_to_first_token") or ttft_client
+    gen_tps = stats.get("tokens_per_second") or decode_tps
+
     return {
-        "gen_tps": stats["tokens_per_second"],
+        "gen_tps": gen_tps,
+        "decode_tps": decode_tps,
         "ttft": ttft,
+        "ttft_client": ttft_client,
+        "total_s": total_s,
         "prefill_tps": prompt_tokens / ttft if ttft else 0.0,
         "prompt_tokens": prompt_tokens,
-        "completion_tokens": usage.get("completion_tokens", 0),
-        "wall": wall,
+        "completion_tokens": completion_tokens,
+        "wall": total_s,
     }
 
 
-def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None):
-    """Benchmark one model across prompt sizes. Yields a result row per size."""
-    print(f"\n{model}", file=sys.stderr)
+def bench_model(target, sizes, runs, max_tokens, verbose, unload=True, power=None):
+    """Benchmark one target across prompt sizes. Yields a result row per size."""
+    backend, model = split_target(target)
+    print(f"\n{target}", file=sys.stderr)
+    if backend == "fm":
+        # Apple's model lives outside LM Studio's memory accounting, so there
+        # is nothing to unload -- but LM Studio must still be drained, or a
+        # resident 20 GB model competes for the same GPU.
+        ensure_fm_server()
+        if unload:
+            unload_all()
     # With --no-unload the caller has already loaded exactly the instance it
     # wants -- typically a specific quantization variant, which JIT loading
     # cannot select since the API exposes only base model ids.
-    if unload:
+    elif unload:
         unload_all()
 
     for size in sizes:
@@ -315,10 +490,10 @@ def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None
         # transiently even after unload_all() has waited.
         try:
             try:
-                one_run(model, build_prompt("warmup", size), max_tokens)
+                one_run(model, build_prompt("warmup", size), max_tokens, backend)
             except urllib.error.HTTPError:
                 time.sleep(2)
-                one_run(model, build_prompt("warmup-retry", size), max_tokens)
+                one_run(model, build_prompt("warmup-retry", size), max_tokens, backend)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")
             try:
@@ -337,7 +512,9 @@ def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None
         win_start = time.time() if power else None
         for i in range(runs):
             try:
-                sample = one_run(model, build_prompt(f"{label}-{i}", size), max_tokens)
+                sample = one_run(
+                    model, build_prompt(f"{label}-{i}", size), max_tokens, backend
+                )
             except (RuntimeError, urllib.error.HTTPError, urllib.error.URLError) as exc:
                 print(f"  {label} run {i + 1}: failed -- {exc}", file=sys.stderr)
                 continue
@@ -345,7 +522,8 @@ def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None
             if verbose:
                 print(
                     f"  {label} run {i + 1}: {sample['gen_tps']:.1f} tok/s, "
-                    f"ttft {sample['ttft']:.2f}s, {sample['wall']:.1f}s wall",
+                    f"ttft {sample['ttft']:.2f}s, "
+                    f"total {sample['total_s']:.1f}s",
                     file=sys.stderr,
                 )
 
@@ -360,7 +538,8 @@ def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None
             # up yet at yield time.
             "_window": (win_start, win_end) if power else None,
             "_generated": sum(s["completion_tokens"] for s in samples),
-            "model": model,
+            "model": target,
+            "backend": backend,
             "size": label,
             # A short prompt's ttft is mostly fixed overhead, so dividing by it
             # says nothing about prefill speed. Only report the rate for sizes
@@ -369,7 +548,13 @@ def bench_model(model, sizes, runs, max_tokens, verbose, unload=True, power=None
             "prompt_tokens": round(median("prompt_tokens")),
             "completion_tokens": round(median("completion_tokens")),
             "gen_tps": median("gen_tps"),
+            "decode_tps": median("decode_tps"),
             "ttft": median("ttft"),
+            "ttft_client": median("ttft_client"),
+            # What the user actually waits for: prompt in, last token out, at
+            # this row's fixed completion length. The one figure that is
+            # directly comparable across backends.
+            "total_s": median("total_s"),
             "prefill_tps": median("prefill_tps"),
             "runs": len(samples),
             # Spread across runs, as a fraction of the median ttft. A healthy
@@ -396,7 +581,8 @@ def print_table(rows, power=False):
     width = max(len(r["model"]) for r in rows)
     header = (
         f"\n{'model':<{width}}  {'prompt':>7}  {'gen tok/s':>9}  "
-        f"{'ttft':>7}  {'prefill tok/s':>13}  {'runs':>4}  {'spread':>7}"
+        f"{'ttft':>7}  {'total':>7}  {'prefill tok/s':>13}  "
+        f"{'runs':>4}  {'spread':>7}"
     )
     if power:
         header += f"  {'watts':>6}  {'over idle':>9}  {'tok/Wh':>7}"
@@ -407,9 +593,10 @@ def print_table(rows, power=False):
         prefill = f"{row['prefill_tps']:.0f}" if row["sized"] else "-"
         flag = "!" if row["ttft_spread"] > 0.25 else " "
         suspect = suspect or flag == "!"
+        total = f"{row['total_s']:.1f}s" if row.get("total_s") else "-"
         line = (
             f"{row['model']:<{width}}  {row['size']:>7}  {row['gen_tps']:>9.1f}  "
-            f"{row['ttft']:>6.2f}s  {prefill:>13}  {row['runs']:>4}  "
+            f"{row['ttft']:>6.2f}s  {total:>7}  {prefill:>13}  {row['runs']:>4}  "
             f"{row['ttft_spread'] * 100:>6.0f}%{flag}"
         )
         if power:
@@ -443,7 +630,9 @@ def main():
     parser.add_argument(
         "models",
         nargs="*",
-        help="model ids to benchmark (default: every chat model LM Studio has)",
+        help="targets to benchmark: an LM Studio model id, optionally with a "
+        "variant (qwen/qwen3.6-27b@4bit), or Apple's on-device model as "
+        "fm:system. Default: every chat model LM Studio has.",
     )
     parser.add_argument(
         "-n", "--runs", type=int, default=3, help="timed runs per size (default: 3)"

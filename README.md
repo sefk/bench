@@ -10,14 +10,44 @@ memory, ~400 GB/s memory bandwidth.
 
 ## Tooling
 
-`lmstudio-bench` measures generation throughput, time-to-first-token, and
-prefill rate per model and prompt size:
+### Speed: `lmstudio-bench`
+
+Measures generation throughput, time-to-first-token, time to a complete answer,
+and prefill rate per target and prompt size:
 
 ```sh
 ./lmstudio-bench                                   # every chat model on disk
 ./lmstudio-bench qwen/qwen3.6-27b -s 0,1000,4000 -n 3
 ./lmstudio-bench qwen/qwen3.6-35b-a3b --json > results/moe.json
+./lmstudio-bench fm:system                         # Apple's on-device model
 ```
+
+Every request is streamed, so each row carries two clocks:
+
+| | from | use it for |
+|---|---|---|
+| `ttft`, `gen_tps` | the server's own counters | comparing builds under one server |
+| `ttft_client`, `total_s`, `decode_tps` | measured at the socket | comparing *across* servers |
+
+The server figures exclude HTTP and queueing overhead and keep rows comparable
+with runs recorded before this tool streamed. The client figures are slightly
+pessimistic but mean the same thing for every backend, which is the only way an
+Apple-vs-Qwen latency number is worth printing. `total_s` — request in, last
+token out — is what a person actually waits.
+
+#### Apple's on-device model
+
+macOS 27 ships `/usr/bin/fm`. `fm serve` exposes the on-device Foundation Model
+over a chat-completions endpoint, and `fm:system` benchmarks it alongside the
+LM Studio builds. Two things differ from LM Studio: it always streams, and it
+reports no token usage at all, so prompt and completion lengths come from
+`fm count-tokens` (Apple's own tokenizer) rather than from the response.
+
+It also has a far smaller context window than the Qwen builds, so the larger
+prompt sizes simply do not run — those rows are reported as skipped rather than
+filled in.
+
+#### Variants
 
 Quantization variants are addressed with `model@quant`. Note that `lms load`
 cannot do this — it matches only base model keys and silently loads whichever
@@ -30,6 +60,74 @@ loading picks the right build:
 
 `run-matrix.sh` sweeps every variant, one invocation each so a late failure
 does not cost earlier results.
+
+**LM Studio does not error on a variant it cannot resolve.** Ask for
+`qwen/qwen3.8-27b@q4_k_m` after that GGUF build has been deleted and it answers
+with whichever model is currently resident, reporting that model's id in the
+response and nothing else to mark the substitution. `lmstudio-bench` and
+`quality-bench` both check the served `model` against the one requested and
+fail loudly, because the alternative is filing one model's numbers under
+another model's name.
+
+### Quality: `quality-bench`
+
+Published benchmark scores describe a model at full precision on someone else's
+hardware. What runs here is a 4- or 8-bit build under MLX, and the point is to
+measure *that* — what you actually get by sending a question to localhost.
+
+```sh
+./quality-bench lmstudio:qwen/qwen3.6-35b-a3b@4bit -o results/2026-09-14/quality.jsonl
+./quality-bench fm:system -o results/2026-09-14/quality.jsonl
+./quality-bench --score results/2026-09-14/quality.jsonl          # table
+./quality-bench --score results/2026-09-14/quality.jsonl --json    # for the dashboard
+```
+
+Two auto-gradable tasks, 750 items, sampled once with a fixed seed into
+`quality/items.jsonl` so every variant faces the same questions and a re-run
+months later is comparable:
+
+- **GSM8K** (250 items) — grade-school math, graded on the final number.
+  Reasoning.
+- **MMLU** (500 items) — 4-way multiple choice, graded on the letter, sampled
+  evenly across all 57 subjects. Knowledge. Even sampling matters: MMLU's
+  subjects are wildly uneven, and `professional_law` alone is ~1500 of the 14k
+  items, so a flat sample is mostly a law exam.
+
+`quality/make-items.py` rebuilds the item file from the upstream sources and
+exists for provenance; the benchmark loop does not use it.
+
+#### Reasoning mode is off by default
+
+Qwen3.x thinks by default, and a single multiple-choice item then costs 300+
+tokens of reasoning — which on the slowest variant turns this into a ~10 hour
+run, and makes the comparison against Apple's non-reasoning model meaningless.
+LM Studio honours neither `/no_think` nor `chat_template_kwargs`, but it does
+honour an assistant prefill of an empty `<think></think>` block, which is what
+the default `--no-think` sends. `--think` leaves reasoning on.
+
+**Scores from the two modes are not comparable**, so the mode is recorded on
+every row and the dashboard joins only `no-think` runs.
+
+#### What the scores do and don't support
+
+Percentages come with a 95% Wilson interval. At 750 items that is roughly ±3
+points, so two variants whose intervals overlap have not been shown to differ —
+the intervals are drawn on the scatter plot for exactly this reason.
+
+Items that error are dropped, not scored as wrong: an error means the server
+went away, not that the model answered badly. Re-running against the same
+output file retries precisely those items, and a target that lost some shows up
+as a smaller `n` rather than a quietly depressed score.
+
+### Plotting quality against speed
+
+```sh
+./plot-quality-speed results/2026-09-14 -o results/2026-09-14/quality-vs-speed.svg
+```
+
+Decode tok/s on Y, composite quality on X, 95% intervals as horizontal bars.
+Writes a standalone SVG — no plotting library, no build step, and the output
+diffs when the numbers change.
 
 ### Measuring power
 
@@ -137,10 +235,24 @@ row's `model` field so results can be filtered and grouped:
 - `params` / `active` — total and active parameter counts, e.g. `35b` / `3b`
   (active equals params for dense models).
 - `quant` — the part after `@` (`4bit`, `8bit`, `q4_k_m`), `unknown` if none.
+- `precision` — nominal weight width (`4-bit`, `8-bit`), which deliberately
+  spans runtimes.
 - `runtime` — `gguf` for llama.cpp-style quant names (`q4_k_m`), `mlx`
-  otherwise.
+  otherwise, `afm` for Apple's on-device model.
 - `variant` — a short label combining base and quant, e.g.
   `qwen3.6-35b-a3b@4bit`.
+
+`precision` and `runtime` are separate on purpose. `4bit` (MLX) and `q4_k_m`
+(GGUF) are both 4-bit and are *not* interchangeable — measured on the same
+model at the same precision, the two differ by ~1.8× on decode. Group by
+`precision` to ask "what does 8-bit cost?", by `runtime` to ask "what does
+llama.cpp cost?", and by `quant` for the raw build id. Collapsing the two into
+one series would hide the largest confound in this dataset.
+
+Quality scores are loaded separately from `results/<date>/quality*.json` and
+joined onto the throughput rows by model id, which is why `quality-bench`
+records a `target` field matching `lmstudio-bench`'s `model`. Only `no-think`
+runs are joined.
 
 Results are cached in memory and re-read automatically when a result file's
 mtime changes, so new runs show up on refresh without restarting the server.

@@ -44,19 +44,26 @@ else
 fi
 
 # Fastest first, so results land early if the run is interrupted.
+#
+# qwen3.8-27b@q4_k_m (llama.cpp GGUF) was benchmarked on 2026-08-14 but is no
+# longer on disk, and LM Studio resolves a missing variant to whatever is
+# resident rather than erroring -- so asking for it now silently benchmarks
+# something else. lmstudio-bench checks the served model id and refuses, but
+# the variant is left out here rather than relying on that.
 VARIANTS=(
-  "qwen/qwen3.6-27b@4bit"
+  "fm:system"
   "qwen/qwen3.6-35b-a3b@4bit"
   "qwen/qwen3.6-35b-a3b@8bit"
+  "qwen/qwen3.8-27b@4bit"
+  "qwen/qwen3.6-27b@4bit"
   "qwen/qwen3.6-27b@8bit"
-  "qwen/qwen3.8-27b@q4_k_m"
 )
 
 mkdir -p "$OUTDIR"
 echo "matrix: ${#VARIANTS[@]} variants, sizes=$SIZES runs=$RUNS -> $OUTDIR"
 
 for variant in "${VARIANTS[@]}"; do
-  slug="$(echo "$variant" | sed 's|.*/||; s|@|-|')"
+  slug="$(echo "$variant" | sed 's|.*/||; s|:|-|; s|@|-|')"
   echo ""
   echo "=== $variant -> $OUTDIR/$slug.json ==="
   start=$(date +%s)

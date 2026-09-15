@@ -1,0 +1,607 @@
+#!/usr/bin/env python3
+"""Grade local models on a fixed item set, on this machine.
+
+Published benchmark scores describe a model at full precision on someone
+else's hardware. What runs here is a 4- or 8-bit build under MLX or llama.cpp,
+and the point of this script is to measure *that* -- the thing you would
+actually get if you sent the question to localhost.
+
+Two auto-gradable tasks, sampled once with a fixed seed into
+`quality/items.jsonl` (see `quality/make-items.py` for provenance):
+
+  gsm8k   grade-school math, graded on the final number. Exercises reasoning.
+  mmlu    4-way multiple choice across 57 subjects, graded on the letter.
+          Exercises knowledge recall. Sampled evenly per subject.
+
+Two backends, because the two servers speak different dialects:
+
+  lmstudio  POST /api/v0/chat/completions -- returns usage and perf stats.
+  fm        Apple's on-device Foundation Model via `fm serve`. Streams SSE
+            always, reports no usage, and applies content guardrails that can
+            refuse an item outright (recorded as `refused`, scored wrong).
+
+On trusting the server
+----------------------
+LM Studio resolves an unknown `model@variant` to whichever model is already
+loaded, with no error. Every response is checked against the id that was
+requested, because otherwise a variant that has been deleted from disk quietly
+reports the resident model's numbers under the missing variant's name.
+
+On reasoning models
+-------------------
+Qwen3.x thinks by default, and LM Studio honours neither `/no_think` nor
+`chat_template_kwargs.enable_thinking`. It does honour an assistant prefill of
+an empty `<think></think>` block, which is what `--no-think` (the default)
+sends. Thinking is left ON with `--think`.
+
+This matters more than it looks. With thinking on, a single multiple-choice
+item costs 300+ tokens of reasoning, which on the slowest variant here turns
+the 750-item set into a ~10 hour run. It also makes the comparison against
+Apple's non-reasoning `fm` model meaningless. Scores from `--think` and
+`--no-think` runs are not comparable to each other; the mode is recorded in
+the output.
+
+Determinism: temperature 0 throughout. Results are still not bit-reproducible
+(Metal kernels reassociate floating point), but run-to-run drift is small.
+
+Resumability: every graded item is appended to the output JSONL as it lands.
+Re-running with the same `-o` skips items already present, so a run that dies
+four hours in does not start over.
+
+Usage:
+    ./quality-bench lmstudio:qwen/qwen3.6-35b-a3b@4bit -o out.jsonl
+    ./quality-bench fm:system -o out.jsonl
+    ./quality-bench --score out.jsonl
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ITEMS = HERE / "quality" / "items.jsonl"
+
+LMSTUDIO_URL = "http://localhost:1234/api/v0/chat/completions"
+FM_PORT = 1976
+FM_URL = f"http://localhost:{FM_PORT}/v1/chat/completions"
+
+# Qwen3 skips its reasoning pass if the assistant turn is already open with a
+# closed, empty think block. See the module docstring.
+NO_THINK_PREFILL = "<think>\n\n</think>\n\n"
+
+# Token budgets. MMLU wants one letter; GSM8K needs room for a worked solution.
+# With --think both are raised, since the reasoning pass comes out of the same
+# budget and a truncated answer grades as wrong.
+MAX_TOKENS = {"mmlu": 8, "gsm8k": 512}
+MAX_TOKENS_THINK = {"mmlu": 1024, "gsm8k": 2048}
+
+GSM8K_INSTRUCTIONS = (
+    "Solve the problem. Show your work briefly, then give the final answer on "
+    "its own last line in the form:\n#### <number>"
+)
+MMLU_INSTRUCTIONS = (
+    "Answer the multiple-choice question. Reply with a single letter (A, B, C, "
+    "or D) and nothing else."
+)
+
+################################################################################
+# Prompting
+
+
+def build_prompt(item):
+    if item["task"] == "gsm8k":
+        return f"{GSM8K_INSTRUCTIONS}\n\n{item['question']}"
+    choices = "\n".join(
+        f"{letter}. {text}"
+        for letter, text in zip("ABCD", item["choices"])
+    )
+    return f"{MMLU_INSTRUCTIONS}\n\n{item['question']}\n{choices}"
+
+
+################################################################################
+# Grading
+
+
+def grade_gsm8k(text, expected):
+    """Prefer the '#### <n>' line; fall back to the last number in the text.
+
+    The fallback matters for weaker models, which often solve the problem and
+    then ignore the format instruction. Grading only the strict form would
+    measure instruction-following as much as arithmetic.
+    """
+    marked = re.findall(r"####\s*(-?[\d,]*\.?\d+)", text)
+    candidates = marked or re.findall(r"(-?[\d,]*\.?\d+)", text)
+    if not candidates:
+        return False, None
+    got = candidates[-1].replace(",", "")
+    try:
+        return abs(float(got) - float(expected)) < 1e-4, got
+    except ValueError:
+        return False, got
+
+
+def grade_mmlu(text, expected):
+    """First standalone A-D letter wins.
+
+    Anchored to a word boundary so 'A' in 'A helium atom...' is not read as an
+    answer while '(B)' and 'B.' still are.
+    """
+    match = re.search(r"\b([ABCD])\b", text.strip().upper())
+    got = match.group(1) if match else None
+    return got == expected, got
+
+
+def grade(item, text):
+    if item["task"] == "gsm8k":
+        return grade_gsm8k(text, item["answer"])
+    return grade_mmlu(text, item["answer"])
+
+
+################################################################################
+# Backends
+
+
+def http_json(url, payload, timeout=900):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode()
+
+
+def ask_lmstudio(model, prompt, max_tokens, think):
+    messages = [{"role": "user", "content": prompt}]
+    if not think:
+        messages.append({"role": "assistant", "content": NO_THINK_PREFILL})
+    body = json.loads(
+        http_json(
+            LMSTUDIO_URL,
+            {
+                "model": model,
+                "messages": messages,
+                "temperature": 0,
+                "max_tokens": max_tokens,
+                "stream": False,
+            },
+        )
+    )
+    # LM Studio does NOT error on an unresolvable variant id -- it silently
+    # answers with whatever model happens to be resident. `qwen3.8-27b@q4_k_m`
+    # returns `qwen3.6-35b-a3b@4bit` once that GGUF build is off disk. Without
+    # this check a whole run gets attributed to the wrong model.
+    served = body.get("model")
+    if served and served != model:
+        raise RuntimeError(
+            f"asked for {model!r}, server answered as {served!r} -- "
+            "the variant is probably not on disk"
+        )
+
+    choice = body["choices"][0]
+    usage = body.get("usage", {})
+    return {
+        "text": choice["message"].get("content") or "",
+        "finish_reason": choice.get("finish_reason"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get(
+            "reasoning_tokens"
+        ),
+        "prompt_tokens": usage.get("prompt_tokens"),
+    }
+
+
+def ask_fm(model, prompt, max_tokens, think):
+    """`fm serve` only ever streams, and reports no token usage."""
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+        "max_tokens": max_tokens,
+    }
+    for attempt in range(3):
+        try:
+            raw = http_json(FM_URL, payload)
+            break
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            # Distinguish "the server is gone" from "this request failed":
+            # only the former is worth a restart, and only a live server that
+            # still refuses the request should surface as a real error.
+            if attempt == 2 or not fm_recover():
+                raise
+            time.sleep(1)
+    chunks, finish = [], None
+    for line in raw.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = line[6:].strip()
+        if payload == "[DONE]":
+            break
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        for choice in event.get("choices", []):
+            piece = (choice.get("delta") or {}).get("content")
+            if piece:
+                chunks.append(piece)
+            if choice.get("finish_reason"):
+                finish = choice["finish_reason"]
+    return {
+        "text": "".join(chunks),
+        "finish_reason": finish,
+        "completion_tokens": None,
+        "reasoning_tokens": None,
+        "prompt_tokens": None,
+    }
+
+
+BACKENDS = {"lmstudio": ask_lmstudio, "fm": ask_fm}
+
+
+# `fm serve` does not survive a long unattended run: it stops accepting
+# connections partway through and every later request fails instantly with
+# ECONNREFUSED. A first attempt at this benchmark lost 550 of 750 fm items that
+# way, and because the server's output was going to /dev/null there was nothing
+# to show why. So: keep its log, notice when it dies, restart it, retry.
+FM_LOG = HERE / ".tmp" / "fm-serve.log"
+FM_RESTARTS_MAX = 20
+
+_fm_state = {"proc": None, "restarts": 0}
+
+
+def fm_alive():
+    try:
+        urllib.request.urlopen(f"http://localhost:{FM_PORT}/health", timeout=3).read()
+        return True
+    except Exception:
+        return False
+
+
+def start_fm_server(reason=""):
+    """(Re)start `fm serve`, keeping its output for post-mortem."""
+    old_proc = _fm_state.get("proc")
+    if old_proc and old_proc.poll() is None:
+        old_proc.terminate()
+        try:
+            old_proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            old_proc.kill()
+
+    FM_LOG.parent.mkdir(parents=True, exist_ok=True)
+    log = FM_LOG.open("a")
+    log.write(f"\n--- start {time.strftime('%F %T')} {reason}\n")
+    log.flush()
+    proc = subprocess.Popen(
+        ["fm", "serve", "--port", str(FM_PORT)], stdout=log, stderr=log
+    )
+    _fm_state["proc"] = proc
+
+    for _ in range(80):
+        if fm_alive():
+            return proc
+        if proc.poll() is not None:
+            break
+        time.sleep(0.5)
+    sys.exit(
+        f"fm serve did not come up on port {FM_PORT} "
+        f"(exit={proc.poll()}); see {FM_LOG}"
+    )
+
+
+def ensure_fm_server():
+    """Adopt a server that is already listening, or start one."""
+    if fm_alive():
+        return None
+    return start_fm_server("initial")
+
+
+def fm_recover():
+    """Bring the server back after it has stopped answering.
+
+    Returns False once the restart budget is spent, so a permanently broken
+    server ends the run loudly instead of filling the results with errors.
+    """
+    if _fm_state["restarts"] >= FM_RESTARTS_MAX:
+        return False
+    _fm_state["restarts"] += 1
+    print(
+        f"  fm serve stopped answering; restarting "
+        f"({_fm_state['restarts']}/{FM_RESTARTS_MAX})",
+        flush=True,
+    )
+    start_fm_server(f"restart {_fm_state['restarts']}")
+    return True
+
+
+def unload_lmstudio():
+    """Only one large model fits in 64 GB; a second trips an HTTP 400."""
+    subprocess.run(
+        ["lms", "unload", "--all"], capture_output=True, check=False
+    )
+
+
+################################################################################
+# Scoring
+
+
+def wilson(successes, total, z=1.96):
+    """Wilson score interval.
+
+    The normal approximation misbehaves near 0 and 1, which is exactly where a
+    small on-device model lands on the harder subjects.
+    """
+    if total == 0:
+        return 0.0, 0.0
+    p = successes / total
+    denom = 1 + z * z / total
+    centre = (p + z * z / (2 * total)) / denom
+    spread = z * ((p * (1 - p) / total + z * z / (4 * total * total)) ** 0.5) / denom
+    return max(0.0, centre - spread), min(1.0, centre + spread)
+
+
+def summarise(rows):
+    """Collapse per-item records into one summary per (model, mode).
+
+    Rows that errored are dropped rather than scored as wrong: they measure the
+    server's availability, not the model's answer. The count that each
+    percentage is over is reported alongside it, so a target that lost items
+    shows up as a smaller `n` instead of a quietly depressed score.
+    """
+    rows = [r for r in rows if not r.get("error")]
+    groups = {}
+    for row in rows:
+        backend = row.get("backend", "lmstudio")
+        groups.setdefault((backend, row["model"], row.get("mode", "no-think")), []).append(row)
+
+    summaries = []
+    for (backend, model, mode), items in sorted(groups.items()):
+        # `target` is the same string the perf benchmark records in its
+        # `model` field, so the dashboard can join quality onto throughput
+        # without a second naming convention to keep in sync.
+        target = f"fm:{model}" if backend == "fm" else model
+        entry = {
+            "model": model,
+            "backend": backend,
+            "target": target,
+            "mode": mode,
+            "n": len(items),
+        }
+        for task in ("gsm8k", "mmlu"):
+            subset = [r for r in items if r["task"] == task]
+            if not subset:
+                continue
+            correct = sum(1 for r in subset if r["correct"])
+            low, high = wilson(correct, len(subset))
+            entry[task] = {
+                "n": len(subset),
+                "correct": correct,
+                "pct": 100 * correct / len(subset),
+                "ci95": [100 * low, 100 * high],
+            }
+        correct = sum(1 for r in items if r["correct"])
+        low, high = wilson(correct, len(items))
+        entry["composite"] = {
+            "n": len(items),
+            "correct": correct,
+            "pct": 100 * correct / len(items),
+            "ci95": [100 * low, 100 * high],
+        }
+        entry["refused"] = sum(1 for r in items if r.get("refused"))
+        entry["truncated"] = sum(
+            1 for r in items if r.get("finish_reason") == "length"
+        )
+        entry["median_latency_s"] = sorted(r["latency_s"] for r in items)[
+            len(items) // 2
+        ]
+        summaries.append(entry)
+    return summaries
+
+
+def print_summary(summaries):
+    header = (
+        f"{'model':<34} {'mode':<9} {'gsm8k':>14} {'mmlu':>14} "
+        f"{'composite':>20} {'ref':>4} {'trunc':>6}"
+    )
+    print(header)
+    print("-" * len(header))
+    for s in summaries:
+        gsm = f"{s['gsm8k']['pct']:.1f}%" if "gsm8k" in s else "-"
+        mmlu = f"{s['mmlu']['pct']:.1f}%" if "mmlu" in s else "-"
+        comp = s["composite"]
+        composite = (
+            f"{comp['pct']:.1f}% "
+            f"[{comp['ci95'][0]:.1f}-{comp['ci95'][1]:.1f}]"
+        )
+        print(
+            f"{s['model']:<34} {s['mode']:<9} {gsm:>14} {mmlu:>14} "
+            f"{composite:>20} {s['refused']:>4} {s['truncated']:>6}"
+        )
+
+
+################################################################################
+# Main
+
+
+REFUSAL_MARKERS = (
+    "unsafe",
+    "cannot assist",
+    "can't assist",
+    "i'm unable",
+    "guardrail",
+    "not able to help",
+)
+
+
+def looks_refused(text, finish_reason):
+    if finish_reason in ("content_filter", "guardrail", "refusal"):
+        return True
+    head = text.strip().lower()[:200]
+    return any(marker in head for marker in REFUSAL_MARKERS)
+
+
+def load_done(path):
+    """Existing results, so a restarted run resumes rather than repeats.
+
+    An item that errored does not count as done. Errors here mean the server
+    went away mid-run, not that the model got the question wrong, and leaving
+    them in would bake a server outage into the score as a pile of zeroes.
+    Re-running the same output file retries exactly those items.
+
+    The last record for an item wins, so a retry supersedes the failure it
+    replaces without the file needing to be rewritten.
+    """
+    done, by_key = set(), {}
+    if not path.exists():
+        return done, []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        key = (row["model"], row.get("mode", "no-think"), row["id"])
+        by_key[key] = row
+        if row.get("error"):
+            done.discard(key)
+        else:
+            done.add(key)
+    return done, list(by_key.values())
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description="Grade local models on a fixed GSM8K + MMLU item set."
+    )
+    ap.add_argument(
+        "targets",
+        nargs="*",
+        help="backend:model, e.g. lmstudio:qwen/qwen3.6-27b@4bit or fm:system",
+    )
+    ap.add_argument("-o", "--out", default="quality-results.jsonl")
+    ap.add_argument("-i", "--items", default=str(ITEMS))
+    ap.add_argument("--task", choices=["gsm8k", "mmlu"], help="run one task only")
+    ap.add_argument("-n", "--limit", type=int, help="first N items of each task")
+    ap.add_argument(
+        "--think",
+        action="store_true",
+        help="leave the model's reasoning mode on (much slower; see docstring)",
+    )
+    ap.add_argument("--score", metavar="FILE", help="summarise an existing result file")
+    ap.add_argument("--json", action="store_true", help="summary as JSON")
+    args = ap.parse_args()
+
+    if args.score:
+        _, rows = load_done(Path(args.score))
+        summaries = summarise(rows)
+        print(json.dumps(summaries, indent=2) if args.json else "", end="")
+        if not args.json:
+            print_summary(summaries)
+        return
+
+    if not args.targets:
+        ap.error("no targets given")
+
+    items = [json.loads(l) for l in Path(args.items).read_text().splitlines() if l.strip()]
+    if args.task:
+        items = [i for i in items if i["task"] == args.task]
+    if args.limit:
+        kept, seen = [], {}
+        for item in items:
+            seen[item["task"]] = seen.get(item["task"], 0) + 1
+            if seen[item["task"]] <= args.limit:
+                kept.append(item)
+        items = kept
+
+    mode = "think" if args.think else "no-think"
+    budgets = MAX_TOKENS_THINK if args.think else MAX_TOKENS
+    out_path = Path(args.out)
+    done, _ = load_done(out_path)
+
+    try:
+        for target in args.targets:
+            backend, _, model = target.partition(":")
+            if backend not in BACKENDS:
+                sys.exit(f"unknown backend {backend!r} in {target!r}")
+            if backend == "fm":
+                ensure_fm_server()
+            else:
+                unload_lmstudio()
+
+            pending = [i for i in items if (model, mode, i["id"]) not in done]
+            print(
+                f"\n=== {target} [{mode}] {len(pending)} items "
+                f"({len(items) - len(pending)} already done) ===",
+                flush=True,
+            )
+            started = time.time()
+            correct_so_far = 0
+
+            with out_path.open("a") as fh:
+                for n, item in enumerate(pending, 1):
+                    prompt = build_prompt(item)
+                    t0 = time.time()
+                    try:
+                        reply = BACKENDS[backend](
+                            model, prompt, budgets[item["task"]], args.think
+                        )
+                        error = None
+                    except Exception as exc:  # noqa: BLE001 - recorded, not raised
+                        reply = {
+                            "text": "",
+                            "finish_reason": "error",
+                            "completion_tokens": None,
+                            "reasoning_tokens": None,
+                            "prompt_tokens": None,
+                        }
+                        error = f"{type(exc).__name__}: {exc}"
+                    latency = time.time() - t0
+
+                    ok, got = grade(item, reply["text"])
+                    correct_so_far += ok
+                    record = {
+                        "model": model,
+                        "backend": backend,
+                        "mode": mode,
+                        "id": item["id"],
+                        "task": item["task"],
+                        "subject": item.get("subject"),
+                        "expected": item["answer"],
+                        "got": got,
+                        "correct": ok,
+                        "refused": looks_refused(reply["text"], reply["finish_reason"]),
+                        "finish_reason": reply["finish_reason"],
+                        "completion_tokens": reply["completion_tokens"],
+                        "reasoning_tokens": reply["reasoning_tokens"],
+                        "prompt_tokens": reply["prompt_tokens"],
+                        "latency_s": round(latency, 3),
+                        "error": error,
+                        "text": reply["text"][:2000],
+                    }
+                    fh.write(json.dumps(record) + "\n")
+                    fh.flush()
+
+                    if n % 25 == 0 or n == len(pending):
+                        rate = (time.time() - started) / n
+                        remaining = rate * (len(pending) - n)
+                        print(
+                            f"  {n}/{len(pending)}  {100*correct_so_far/n:.1f}% correct  "
+                            f"{rate:.2f}s/item  ~{remaining/60:.0f}m left",
+                            flush=True,
+                        )
+    finally:
+        proc = _fm_state.get("proc")
+        if proc and proc.poll() is None:
+            proc.terminate()
+
+    _, rows = load_done(out_path)
+    print()
+    print_summary(summarise(rows))
+
+
+if __name__ == "__main__":
+    main()
