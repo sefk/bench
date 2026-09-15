@@ -177,6 +177,17 @@ What is measured is **SoC package power** (CPU + GPU + ANE). It excludes DRAM,
 PSU losses, and the rest of the machine, so treat it as a floor on wall draw,
 not a substitute for a plug meter.
 
+## Tests
+
+```sh
+./tests.py                          # the benchmark scripts
+cd dashboard && uv run manage.py test
+```
+
+`tests.py` covers the logic that fails quietly rather than loudly: answer
+grading, score aggregation, resume-after-failure, and warm-up convergence. It
+touches neither the GPU, LM Studio, nor `fm`.
+
 ## Results layout
 
 Results are kept per run date, since runs are infrequent and worth keeping
