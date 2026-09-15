@@ -58,6 +58,18 @@ loading picks the right build:
 ./lmstudio-bench qwen/qwen3.6-27b@4bit qwen/qwen3.6-27b@8bit
 ```
 
+#### Warm-up
+
+Large models ramp. Measured on the 37.75 GB 8-bit MoE, decode ran **9.7 tok/s
+over the first 25 requests, 33.2 over the next 60, and 41.9 once warm** — so
+discarding a single warm-up run and timing the next banks a number from
+partway up that ramp, and understates the largest models most.
+
+`lmstudio-bench` therefore warms up until the rate stops climbing (three
+consecutive runs within 8%, up to 12 attempts) before timing anything, once
+per model rather than once per prompt size. A model that never settles is
+reported with a warning instead of a quiet number.
+
 `run-matrix.sh` sweeps every variant, one invocation each so a late failure
 does not cost earlier results.
 

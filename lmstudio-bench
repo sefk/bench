@@ -35,8 +35,13 @@ Notes on methodology:
 - Each run is prefixed with a unique nonce so LM Studio's KV cache can never be
   reused across runs. Without this, every run after the first reports an
   implausibly fast ttft and the prefill number is meaningless.
-- One warm-up run per model/size is discarded, so model load time and first-run
-  Metal shader compilation stay out of the results.
+- Warm-up runs until the decode rate stops climbing, rather than a fixed
+  number of times. One discarded run is not enough for a large model: a
+  37.75 GB MoE measured 9.7 tok/s over its first 25 requests, 33.2 over the
+  next 60, and 41.9 once warm, so a single-warm-up benchmark banks a number
+  from partway up that ramp -- and understates the biggest models most, which
+  is precisely the comparison being made. A model that never settles is
+  flagged rather than quietly reported.
 - Every other model is unloaded before benchmarking, both to free memory (a
   large model otherwise trips LM Studio's loading guardrails) and to keep runs
   from competing for the same GPU.
@@ -296,6 +301,53 @@ def build_prompt(nonce, prompt_tokens):
     )
 
 
+# Warm-up. A single discarded run is not enough for a large model: measured on
+# a 37.75 GB MoE, decode ran 9.7 tok/s over the first 25 requests, 33.2 over
+# the next 60, and 41.9 once warm. A benchmark that discards one run and then
+# times the next banks a number from partway up that ramp -- understating the
+# model by up to 4x, and understating the largest models most, which is exactly
+# the comparison this tool exists to make.
+#
+# So warm up until the rate stops climbing rather than a fixed number of times.
+WARMUP_MAX_RUNS = 12
+WARMUP_STABLE_RUNS = 3
+WARMUP_TOLERANCE = 0.08
+
+
+def warm_up_model(model, max_tokens, backend, verbose=False):
+    """Bring a freshly loaded model to steady-state decode speed.
+
+    Uses the shortest prompt: what is being waited on is the weights becoming
+    resident and the Metal kernels compiling, neither of which is prompt-size
+    specific, and a short prompt makes each probe cheap enough to repeat.
+
+    Returns the observed rates, so a run that never settles can say so instead
+    of silently reporting a number from the ramp.
+    """
+    rates = []
+    for attempt in range(WARMUP_MAX_RUNS):
+        try:
+            sample = one_run(
+                model, build_prompt(f"warmup-{attempt}", 0), max_tokens, backend
+            )
+        except urllib.error.HTTPError:
+            # A JIT load racing a just-finished unload can fail transiently
+            # even after unload_all() has waited.
+            if attempt > 0:
+                raise
+            time.sleep(2)
+            continue
+        rates.append(sample["gen_tps"])
+        if verbose:
+            print(f"  warmup {len(rates)}: {rates[-1]:.1f} tok/s", file=sys.stderr)
+
+        if len(rates) >= WARMUP_STABLE_RUNS:
+            recent = rates[-WARMUP_STABLE_RUNS:]
+            if (max(recent) - min(recent)) / max(recent) <= WARMUP_TOLERANCE:
+                return rates
+    return rates
+
+
 def stream_request(url, payload):
     """Stream one chat completion, timing it from the client's side.
 
@@ -481,13 +533,38 @@ def bench_model(target, sizes, runs, max_tokens, verbose, unload=True, power=Non
     elif unload:
         unload_all()
 
+    # Once per model, not once per size: the ramp is about the model becoming
+    # resident, and repeating it at a 16k prompt would cost far more than it
+    # buys.
+    try:
+        rates = warm_up_model(model, max_tokens, backend, verbose)
+    except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
+        detail = exc
+        if isinstance(exc, urllib.error.HTTPError):
+            body = exc.read().decode(errors="replace")
+            try:
+                detail = json.loads(body).get("error", {}).get("message", body)
+            except (json.JSONDecodeError, AttributeError):
+                detail = body
+        print(f"  SKIPPED -- {str(detail).strip()[:160]}", file=sys.stderr)
+        return
+
+    if rates:
+        settled = len(rates) < WARMUP_MAX_RUNS
+        print(
+            f"  warmed up in {len(rates)} runs: "
+            f"{rates[0]:.1f} -> {rates[-1]:.1f} tok/s"
+            + ("" if settled else "  [WARNING: never settled]"),
+            file=sys.stderr,
+        )
+
     for size in sizes:
         label = "short" if size <= 0 else f"{size}tok"
         samples = []
 
-        # Warm-up: loads the model and compiles kernels. Discarded. Retried
-        # once, since a JIT load racing a just-finished unload can fail
-        # transiently even after unload_all() has waited.
+        # The model is already warm; this discarded run only covers whatever is
+        # specific to this prompt length (larger KV allocation, and its own
+        # kernel variants).
         try:
             try:
                 one_run(model, build_prompt("warmup", size), max_tokens, backend)
