@@ -78,7 +78,18 @@ NO_THINK_PREFILL = "<think>\n\n</think>\n\n"
 # Token budgets. MMLU wants one letter; GSM8K needs room for a worked solution.
 # With --think both are raised, since the reasoning pass comes out of the same
 # budget and a truncated answer grades as wrong.
-MAX_TOKENS = {"mmlu": 8, "gsm8k": 512}
+#
+# GSM8K's budget started at 512 and that was too tight to measure what it
+# claimed to. At 512, all three Qwen builds scored 98% on the answers they
+# finished, and their apparent differences (94.4 / 94.4 / 91.1) came entirely
+# from how often they ran past the cap: 4.0%, 3.2% and 9.4% of items. The
+# metric was ranking verbosity, not reasoning. Raising the ceiling puts the
+# truncation rate low enough that the score is about the answers.
+#
+# Truncation is still reported per target, because a model that cannot finish
+# inside a sane budget is a real cost -- it just should not masquerade as
+# getting the sums wrong.
+MAX_TOKENS = {"mmlu": 8, "gsm8k": 1536}
 MAX_TOKENS_THINK = {"mmlu": 1024, "gsm8k": 2048}
 
 GSM8K_INSTRUCTIONS = (
@@ -446,7 +457,7 @@ def looks_refused(text, finish_reason):
     return any(marker in head for marker in REFUSAL_MARKERS)
 
 
-def load_done(path):
+def load_done(path, budgets=None):
     """Existing results, so a restarted run resumes rather than repeats.
 
     An item that errored does not count as done. Errors here mean the server
@@ -466,11 +477,28 @@ def load_done(path):
         row = json.loads(line)
         key = (row["model"], row.get("mode", "no-think"), row["id"])
         by_key[key] = row
-        if row.get("error"):
+        if row.get("error") or _budget_was_raised(row, budgets):
             done.discard(key)
         else:
             done.add(key)
     return done, list(by_key.values())
+
+
+def _budget_was_raised(row, budgets):
+    """True if this row was truncated under a budget smaller than today's.
+
+    Re-running only the truncated items under a larger ceiling is equivalent to
+    having used the larger ceiling all along -- an answer that stopped on its
+    own would not have changed. Rows truncated at the *current* budget are left
+    alone, so repeated resumes do not retry them forever.
+    """
+    if not budgets or row.get("finish_reason") != "length":
+        return False
+    recorded = row.get("max_tokens")
+    if recorded is None:
+        # Written before the budget was recorded; those all used the old cap.
+        recorded = 512 if row.get("task") == "gsm8k" else 8
+    return recorded < budgets.get(row.get("task"), 0)
 
 
 def main():
@@ -520,7 +548,7 @@ def main():
     mode = "think" if args.think else "no-think"
     budgets = MAX_TOKENS_THINK if args.think else MAX_TOKENS
     out_path = Path(args.out)
-    done, _ = load_done(out_path)
+    done, _ = load_done(out_path, budgets)
 
     try:
         for target in args.targets:
@@ -575,6 +603,7 @@ def main():
                         "correct": ok,
                         "refused": looks_refused(reply["text"], reply["finish_reason"]),
                         "finish_reason": reply["finish_reason"],
+                        "max_tokens": budgets[item["task"]],
                         "completion_tokens": reply["completion_tokens"],
                         "reasoning_tokens": reply["reasoning_tokens"],
                         "prompt_tokens": reply["prompt_tokens"],

@@ -120,6 +120,24 @@ the default `--no-think` sends. `--think` leaves reasoning on.
 **Scores from the two modes are not comparable**, so the mode is recorded on
 every row and the dashboard joins only `no-think` runs.
 
+#### Token budgets
+
+MMLU gets 8 tokens (it wants one letter); GSM8K gets 1536.
+
+GSM8K's budget started at 512, and that was too tight to measure what it
+claimed to. At 512 all three Qwen builds scored **98% on the answers they
+finished**, and their apparent differences — 94.4%, 94.4%, 91.1% — came
+entirely from how often they ran past the cap (4.0%, 3.2%, 9.4% of items).
+The metric was ranking verbosity and calling it reasoning.
+
+Re-running *only* the truncated items under a larger ceiling is equivalent to
+having used it all along, since an answer that stopped on its own would not
+have changed. Resuming does exactly that: rows truncated under a smaller
+budget than the current one are retried, rows truncated at the current budget
+are not (so repeated resumes do not loop). Truncation rate stays in the
+output, because a model that cannot finish inside a sane budget is a real
+cost — it just should not masquerade as getting the sums wrong.
+
 #### What the scores do and don't support
 
 Percentages come with a 95% Wilson interval. At 750 items that is roughly ±3

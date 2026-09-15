@@ -173,6 +173,46 @@ class ResumeTests(unittest.TestCase):
             self.assertNotIn(("m", "no-think", "b"), done, "errored item must retry")
             self.assertEqual(len(rows), 2)
 
+    def test_truncated_items_retry_under_a_larger_budget(self):
+        """Re-running only the truncated items under a bigger ceiling is
+        equivalent to having used it all along: an answer that stopped on its
+        own would not have changed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.jsonl"
+            path.write_text(
+                json.dumps({"model": "m", "mode": "no-think", "id": "a",
+                            "task": "gsm8k", "finish_reason": "length",
+                            "max_tokens": 512, "error": None}) + "\n"
+                + json.dumps({"model": "m", "mode": "no-think", "id": "b",
+                              "task": "gsm8k", "finish_reason": "stop",
+                              "max_tokens": 512, "error": None}) + "\n"
+            )
+            done, _ = quality.load_done(path, {"gsm8k": 1536})
+            self.assertNotIn(("m", "no-think", "a"), done, "truncated must retry")
+            self.assertIn(("m", "no-think", "b"), done, "finished must not retry")
+
+    def test_truncation_at_the_current_budget_is_not_retried_forever(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.jsonl"
+            path.write_text(
+                json.dumps({"model": "m", "mode": "no-think", "id": "a",
+                            "task": "gsm8k", "finish_reason": "length",
+                            "max_tokens": 1536, "error": None}) + "\n"
+            )
+            done, _ = quality.load_done(path, {"gsm8k": 1536})
+            self.assertIn(("m", "no-think", "a"), done)
+
+    def test_rows_predating_the_budget_field_use_the_old_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.jsonl"
+            path.write_text(
+                json.dumps({"model": "m", "mode": "no-think", "id": "a",
+                            "task": "gsm8k", "finish_reason": "length",
+                            "error": None}) + "\n"
+            )
+            done, _ = quality.load_done(path, {"gsm8k": 1536})
+            self.assertNotIn(("m", "no-think", "a"), done)
+
     def test_a_retry_supersedes_the_failure_it_replaces(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "r.jsonl"
