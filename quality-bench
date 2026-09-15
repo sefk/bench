@@ -168,22 +168,43 @@ def http_json(url, payload, timeout=900):
         return resp.read().decode()
 
 
+# LM Studio drops out mid-run: it unloads the model and then refuses to
+# reload it while the machine is briefly under pressure, answering HTTP 400
+# (its resource guardrail) or 500. A single pass lost 154 consecutive items
+# that way. The condition clears on its own, so back off and retry rather than
+# recording a hundred "wrong answers" that are really one server hiccup.
+LMSTUDIO_RETRIES = 4
+LMSTUDIO_BACKOFF = 15
+
+
 def ask_lmstudio(model, prompt, max_tokens, think):
     messages = [{"role": "user", "content": prompt}]
     if not think:
         messages.append({"role": "assistant", "content": NO_THINK_PREFILL})
-    body = json.loads(
-        http_json(
-            LMSTUDIO_URL,
-            {
-                "model": model,
-                "messages": messages,
-                "temperature": 0,
-                "max_tokens": max_tokens,
-                "stream": False,
-            },
-        )
-    )
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+
+    for attempt in range(LMSTUDIO_RETRIES):
+        try:
+            raw = http_json(LMSTUDIO_URL, payload)
+            break
+        except urllib.error.HTTPError as exc:
+            # 4xx that is not the resource guardrail means the request itself
+            # is wrong -- retrying will not fix it.
+            if exc.code not in (400, 429, 500, 502, 503) or attempt == LMSTUDIO_RETRIES - 1:
+                raise
+            time.sleep(LMSTUDIO_BACKOFF * (attempt + 1))
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            if attempt == LMSTUDIO_RETRIES - 1:
+                raise
+            time.sleep(LMSTUDIO_BACKOFF * (attempt + 1))
+
+    body = json.loads(raw)
     # LM Studio does NOT error on an unresolvable variant id -- it silently
     # answers with whatever model happens to be resident. `qwen3.8-27b@q4_k_m`
     # returns `qwen3.6-35b-a3b@4bit` once that GGUF build is off disk. Without
