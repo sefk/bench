@@ -45,6 +45,11 @@ fi
 
 # Fastest first, so results land early if the run is interrupted.
 #
+# Three models x two precisions, so the quantization question is answered
+# across models rather than within one. Check `lms ls --variants` before
+# editing: the REST API lists only base ids plus whatever is resident, so it
+# cannot tell you which variants exist on disk.
+#
 # qwen3.8-27b@q4_k_m (llama.cpp GGUF) was benchmarked on 2026-08-14 but is no
 # longer on disk, and LM Studio resolves a missing variant to whatever is
 # resident rather than erroring -- so asking for it now silently benchmarks
@@ -56,6 +61,7 @@ VARIANTS=(
   "qwen/qwen3.6-35b-a3b@8bit"
   "qwen/qwen3.8-27b@4bit"
   "qwen/qwen3.6-27b@4bit"
+  "qwen/qwen3.8-27b@8bit"
   "qwen/qwen3.6-27b@8bit"
 )
 
