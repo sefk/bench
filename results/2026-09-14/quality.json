@@ -1,0 +1,261 @@
+[
+  {
+    "model": "system",
+    "backend": "fm",
+    "target": "fm:system",
+    "mode": "no-think",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 202,
+      "pct": 80.8,
+      "ci95": [
+        75.46609408206535,
+        85.20166092735785
+      ]
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 311,
+      "pct": 62.2,
+      "ci95": [
+        57.87196479091447,
+        66.34199451693149
+      ]
+    },
+    "composite": {
+      "n": 750,
+      "correct": 513,
+      "pct": 68.4,
+      "ci95": [
+        64.98605878781758,
+        71.62640727932438
+      ]
+    },
+    "refused": 0,
+    "truncated": 0,
+    "median_latency_s": 0.484
+  },
+  {
+    "model": "qwen/qwen3.6-27b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-27b@4bit",
+    "mode": "no-think",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 241,
+      "pct": 96.4,
+      "ci95": [
+        93.30088524397114,
+        98.0946937312638
+      ]
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 431,
+      "pct": 86.2,
+      "ci95": [
+        82.89973296731233,
+        88.94824465105026
+      ]
+    },
+    "composite": {
+      "n": 750,
+      "correct": 672,
+      "pct": 89.6,
+      "ci95": [
+        87.20972517890603,
+        91.58666918298644
+      ]
+    },
+    "refused": 0,
+    "truncated": 4,
+    "median_latency_s": 2.046
+  },
+  {
+    "model": "qwen/qwen3.6-27b@8bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-27b@8bit",
+    "mode": "no-think",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 242,
+      "pct": 96.8,
+      "ci95": [
+        93.81368887054249,
+        98.36978302689276
+      ]
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 429,
+      "pct": 85.8,
+      "ci95": [
+        82.46696706783865,
+        88.58711024534867
+      ]
+    },
+    "composite": {
+      "n": 750,
+      "correct": 671,
+      "pct": 89.46666666666667,
+      "ci95": [
+        87.06489354703514,
+        91.46619308973312
+      ]
+    },
+    "refused": 0,
+    "truncated": 1,
+    "median_latency_s": 2.821
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-35b-a3b@4bit",
+    "mode": "no-think",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 242,
+      "pct": 96.8,
+      "ci95": [
+        93.81368887054249,
+        98.36978302689276
+      ]
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 419,
+      "pct": 83.8,
+      "ci95": [
+        80.3147047944046,
+        86.76987099290632
+      ]
+    },
+    "composite": {
+      "n": 750,
+      "correct": 661,
+      "pct": 88.13333333333334,
+      "ci95": [
+        85.62223069560008,
+        90.25577868992598
+      ]
+    },
+    "refused": 0,
+    "truncated": 1,
+    "median_latency_s": 0.582
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b@8bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-35b-a3b@8bit",
+    "mode": "no-think",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 240,
+      "pct": 96.0,
+      "ci95": [
+        92.79465354073034,
+        97.8130325123043
+      ]
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 424,
+      "pct": 84.8,
+      "ci95": [
+        81.38851771600609,
+        87.68080883424302
+      ]
+    },
+    "composite": {
+      "n": 750,
+      "correct": 664,
+      "pct": 88.53333333333333,
+      "ci95": [
+        86.0539945601994,
+        90.61993800069934
+      ]
+    },
+    "refused": 0,
+    "truncated": 3,
+    "median_latency_s": 0.694
+  },
+  {
+    "model": "qwen/qwen3.8-27b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.8-27b@4bit",
+    "mode": "no-think",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 240,
+      "pct": 96.0,
+      "ci95": [
+        92.79465354073034,
+        97.8130325123043
+      ]
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 394,
+      "pct": 78.8,
+      "ci95": [
+        75.00471496065019,
+        82.1561070119698
+      ]
+    },
+    "composite": {
+      "n": 750,
+      "correct": 634,
+      "pct": 84.53333333333333,
+      "ci95": [
+        81.77011833473533,
+        86.9445824724369
+      ]
+    },
+    "refused": 0,
+    "truncated": 3,
+    "median_latency_s": 2.517
+  },
+  {
+    "model": "qwen/qwen3.8-27b@8bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.8-27b@8bit",
+    "mode": "no-think",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 240,
+      "pct": 96.0,
+      "ci95": [
+        92.79465354073034,
+        97.8130325123043
+      ]
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 407,
+      "pct": 81.4,
+      "ci95": [
+        77.75451944568552,
+        84.56665451057376
+      ]
+    },
+    "composite": {
+      "n": 750,
+      "correct": 647,
+      "pct": 86.26666666666667,
+      "ci95": [
+        83.61779463925302,
+        88.54590659453405
+      ]
+    },
+    "refused": 0,
+    "truncated": 4,
+    "median_latency_s": 2.601
+  }
+]

@@ -55,14 +55,19 @@ fi
 # resident rather than erroring -- so asking for it now silently benchmarks
 # something else. lmstudio-bench checks the served model id and refuses, but
 # the variant is left out here rather than relying on that.
+# Smallest first, largest last. The 37.75 GB 8-bit MoE needs more free memory
+# than this machine reliably has late in a session, and running it last gives
+# the most chance of it being measured under fair conditions. Every row records
+# free RAM either side of its timing so a memory-starved row is visible rather
+# than silently slow.
 VARIANTS=(
   "fm:system"
-  "qwen/qwen3.6-35b-a3b@4bit"
-  "qwen/qwen3.6-35b-a3b@8bit"
-  "qwen/qwen3.8-27b@4bit"
   "qwen/qwen3.6-27b@4bit"
-  "qwen/qwen3.8-27b@8bit"
+  "qwen/qwen3.8-27b@4bit"
+  "qwen/qwen3.6-35b-a3b@4bit"
   "qwen/qwen3.6-27b@8bit"
+  "qwen/qwen3.8-27b@8bit"
+  "qwen/qwen3.6-35b-a3b@8bit"
 )
 
 mkdir -p "$OUTDIR"

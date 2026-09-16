@@ -1,0 +1,201 @@
+
+=== fm:system [no-think] 750 items (0 already done) ===
+  25/750  92.0% correct  3.31s/item  ~40m left
+  50/750  88.0% correct  3.34s/item  ~39m left
+  75/750  85.3% correct  3.48s/item  ~39m left
+  100/750  83.0% correct  3.85s/item  ~42m left
+  125/750  82.4% correct  4.15s/item  ~43m left
+  150/750  83.3% correct  4.30s/item  ~43m left
+  175/750  82.9% correct  4.10s/item  ~39m left
+  200/750  80.5% correct  4.47s/item  ~41m left
+  225/750  71.6% correct  3.98s/item  ~35m left
+  250/750  64.4% correct  3.58s/item  ~30m left
+  275/750  58.5% correct  3.25s/item  ~26m left
+  300/750  53.7% correct  2.98s/item  ~22m left
+  325/750  49.5% correct  2.75s/item  ~19m left
+  350/750  46.0% correct  2.56s/item  ~17m left
+  375/750  42.9% correct  2.39s/item  ~15m left
+  400/750  40.2% correct  2.24s/item  ~13m left
+  425/750  37.9% correct  2.10s/item  ~11m left
+  450/750  35.8% correct  1.99s/item  ~10m left
+  475/750  33.9% correct  1.88s/item  ~9m left
+  500/750  32.2% correct  1.79s/item  ~7m left
+  525/750  30.7% correct  1.70s/item  ~6m left
+  550/750  29.3% correct  1.63s/item  ~5m left
+  575/750  28.0% correct  1.56s/item  ~5m left
+  600/750  26.8% correct  1.49s/item  ~4m left
+  625/750  25.8% correct  1.43s/item  ~3m left
+  650/750  24.8% correct  1.38s/item  ~2m left
+  675/750  23.9% correct  1.33s/item  ~2m left
+  700/750  23.0% correct  1.28s/item  ~1m left
+  725/750  22.2% correct  1.23s/item  ~1m left
+  750/750  21.5% correct  1.19s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-35b-a3b@4bit [no-think] 750 items (0 already done) ===
+  25/750  100.0% correct  5.41s/item  ~65m left
+  50/750  98.0% correct  5.17s/item  ~60m left
+  75/750  94.7% correct  5.00s/item  ~56m left
+  100/750  94.0% correct  4.99s/item  ~54m left
+  125/750  94.4% correct  4.95s/item  ~52m left
+  150/750  94.0% correct  4.80s/item  ~48m left
+  175/750  93.7% correct  4.73s/item  ~45m left
+  200/750  94.0% correct  4.71s/item  ~43m left
+  225/750  93.8% correct  4.70s/item  ~41m left
+  250/750  94.4% correct  4.66s/item  ~39m left
+  275/750  94.2% correct  4.28s/item  ~34m left
+  300/750  93.3% correct  3.96s/item  ~30m left
+  325/750  92.9% correct  3.69s/item  ~26m left
+  350/750  91.4% correct  3.47s/item  ~23m left
+  375/750  90.7% correct  3.27s/item  ~20m left
+  400/750  90.5% correct  3.10s/item  ~18m left
+  425/750  89.6% correct  2.94s/item  ~16m left
+  450/750  89.6% correct  2.81s/item  ~14m left
+  475/750  89.1% correct  2.69s/item  ~12m left
+  500/750  88.8% correct  2.58s/item  ~11m left
+  525/750  89.0% correct  2.48s/item  ~9m left
+  550/750  88.7% correct  2.39s/item  ~8m left
+  575/750  88.0% correct  2.31s/item  ~7m left
+  600/750  88.0% correct  2.23s/item  ~6m left
+  625/750  87.8% correct  2.16s/item  ~5m left
+  650/750  87.7% correct  2.10s/item  ~4m left
+  675/750  87.7% correct  2.04s/item  ~3m left
+  700/750  87.4% correct  1.99s/item  ~2m left
+  725/750  87.2% correct  1.94s/item  ~1m left
+  750/750  87.3% correct  1.89s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-35b-a3b@8bit [no-think] 750 items (0 already done) ===
+  25/750  100.0% correct  26.62s/item  ~322m left
+  50/750  98.0% correct  22.14s/item  ~258m left
+  75/750  94.7% correct  19.28s/item  ~217m left
+  100/750  95.0% correct  16.43s/item  ~178m left
+  125/750  92.8% correct  14.58s/item  ~152m left
+  150/750  92.7% correct  13.33s/item  ~133m left
+  175/750  92.6% correct  12.26s/item  ~117m left
+  200/750  93.5% correct  11.38s/item  ~104m left
+  225/750  93.8% correct  10.76s/item  ~94m left
+  250/750  94.4% correct  10.33s/item  ~86m left
+  275/750  94.2% correct  9.49s/item  ~75m left
+  300/750  93.3% correct  8.75s/item  ~66m left
+  325/750  92.6% correct  8.13s/item  ~58m left
+  350/750  91.1% correct  7.62s/item  ~51m left
+  375/750  91.2% correct  7.16s/item  ~45m left
+  400/750  90.8% correct  6.74s/item  ~39m left
+  425/750  90.4% correct  6.37s/item  ~35m left
+  450/750  90.0% correct  6.05s/item  ~30m left
+  475/750  89.9% correct  5.77s/item  ~26m left
+  500/750  89.8% correct  5.51s/item  ~23m left
+  525/750  89.9% correct  5.27s/item  ~20m left
+  550/750  89.8% correct  5.06s/item  ~17m left
+  575/750  89.0% correct  4.87s/item  ~14m left
+  600/750  88.8% correct  4.69s/item  ~12m left
+  625/750  88.6% correct  4.52s/item  ~9m left
+  650/750  88.5% correct  4.37s/item  ~7m left
+  675/750  88.4% correct  4.23s/item  ~5m left
+  700/750  87.9% correct  4.10s/item  ~3m left
+  725/750  87.7% correct  3.98s/item  ~2m left
+  750/750  88.0% correct  3.87s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 750 items (0 already done) ===
+  25/750  96.0% correct  19.32s/item  ~233m left
+  50/750  96.0% correct  19.32s/item  ~225m left
+  75/750  96.0% correct  19.66s/item  ~221m left
+  100/750  94.0% correct  20.60s/item  ~223m left
+  125/750  91.2% correct  21.49s/item  ~224m left
+  150/750  90.7% correct  21.63s/item  ~216m left
+  175/750  90.9% correct  21.50s/item  ~206m left
+  200/750  90.0% correct  21.53s/item  ~197m left
+  225/750  90.2% correct  21.62s/item  ~189m left
+  250/750  91.2% correct  21.24s/item  ~177m left
+  275/750  89.8% correct  19.54s/item  ~155m left
+  300/750  89.0% correct  18.10s/item  ~136m left
+  325/750  88.6% correct  16.89s/item  ~120m left
+  350/750  88.0% correct  15.86s/item  ~106m left
+  375/750  87.5% correct  14.99s/item  ~94m left
+  400/750  87.0% correct  14.20s/item  ~83m left
+  425/750  86.4% correct  13.49s/item  ~73m left
+  450/750  86.0% correct  12.88s/item  ~64m left
+  475/750  85.7% correct  12.33s/item  ~57m left
+  500/750  85.8% correct  11.84s/item  ~49m left
+  525/750  85.7% correct  11.39s/item  ~43m left
+  550/750  85.1% correct  10.99s/item  ~37m left
+  575/750  84.7% correct  10.61s/item  ~31m left
+  600/750  84.2% correct  10.27s/item  ~26m left
+  625/750  83.8% correct  9.96s/item  ~21m left
+  650/750  83.8% correct  9.67s/item  ~16m left
+  675/750  83.9% correct  9.41s/item  ~12m left
+  700/750  83.4% correct  9.16s/item  ~8m left
+  725/750  82.8% correct  8.93s/item  ~4m left
+  750/750  82.9% correct  8.72s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 750 items (0 already done) ===
+  25/750  100.0% correct  17.47s/item  ~211m left
+  50/750  94.0% correct  17.90s/item  ~209m left
+  75/750  93.3% correct  18.15s/item  ~204m left
+  100/750  93.0% correct  18.31s/item  ~198m left
+  125/750  92.8% correct  18.27s/item  ~190m left
+  150/750  92.7% correct  17.98s/item  ~180m left
+  175/750  93.1% correct  17.66s/item  ~169m left
+  200/750  93.0% correct  17.57s/item  ~161m left
+  225/750  92.9% correct  17.62s/item  ~154m left
+  250/750  93.6% correct  17.47s/item  ~146m left
+  275/750  92.7% correct  16.06s/item  ~127m left
+  300/750  92.0% correct  14.87s/item  ~112m left
+  325/750  92.0% correct  13.86s/item  ~98m left
+  350/750  91.4% correct  13.00s/item  ~87m left
+  375/750  90.9% correct  12.29s/item  ~77m left
+  400/750  91.0% correct  11.63s/item  ~68m left
+  425/750  90.4% correct  11.05s/item  ~60m left
+  450/750  90.2% correct  10.54s/item  ~53m left
+  475/750  89.5% correct  10.09s/item  ~46m left
+  500/750  89.6% correct  9.68s/item  ~40m left
+  525/750  89.7% correct  9.31s/item  ~35m left
+  550/750  89.8% correct  8.98s/item  ~30m left
+  575/750  89.7% correct  8.66s/item  ~25m left
+  600/750  89.3% correct  8.38s/item  ~21m left
+  625/750  89.1% correct  8.12s/item  ~17m left
+  650/750  88.9% correct  7.88s/item  ~13m left
+  675/750  89.0% correct  7.67s/item  ~10m left
+  700/750  88.7% correct  7.46s/item  ~6m left
+  725/750  88.6% correct  7.27s/item  ~3m left
+  750/750  88.7% correct  7.10s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-27b@8bit [no-think] 750 items (0 already done) ===
+  25/750  96.0% correct  30.95s/item  ~374m left
+  50/750  94.0% correct  31.59s/item  ~369m left
+  75/750  93.3% correct  32.47s/item  ~365m left
+  100/750  94.0% correct  32.85s/item  ~356m left
+  125/750  93.6% correct  32.69s/item  ~340m left
+  150/750  93.3% correct  32.45s/item  ~324m left
+  175/750  90.9% correct  32.50s/item  ~311m left
+  200/750  79.5% correct  35.99s/item  ~330m left
+  225/750  70.7% correct  38.69s/item  ~339m left
+  250/750  63.6% correct  40.85s/item  ~340m left
+  275/750  63.6% correct  38.67s/item  ~306m left
+  300/750  63.7% correct  36.64s/item  ~275m left
+  325/750  64.9% correct  34.35s/item  ~243m left
+  350/750  65.4% correct  32.28s/item  ~215m left
+  375/750  65.6% correct  30.78s/item  ~192m left
+  400/750  66.5% correct  29.29s/item  ~171m left
+  425/750  66.6% correct  27.99s/item  ~152m left
+  450/750  67.1% correct  26.96s/item  ~135m left
+  475/750  67.6% correct  25.94s/item  ~119m left
+  500/750  68.0% correct  25.13s/item  ~105m left
+  525/750  68.6% correct  24.49s/item  ~92m left
+  550/750  68.5% correct  23.81s/item  ~79m left
+  575/750  68.3% correct  23.09s/item  ~67m left
+  600/750  68.8% correct  22.44s/item  ~56m left
+  625/750  69.1% correct  21.84s/item  ~46m left
+  650/750  69.4% correct  21.36s/item  ~36m left
+  675/750  69.5% correct  20.93s/item  ~26m left
+  700/750  69.4% correct  20.44s/item  ~17m left
+  725/750  69.5% correct  20.06s/item  ~8m left
+  750/750  70.0% correct  19.65s/item  ~0m left
+
+model                              mode               gsm8k           mmlu            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think           93.6%          86.2%    88.7% [86.2-90.7]    0     16
+qwen/qwen3.6-27b@8bit              no-think           63.6%          73.2%    70.0% [66.6-73.2]    0      9
+qwen/qwen3.6-35b-a3b@4bit          no-think           94.4%          83.8%    87.3% [84.8-89.5]    0     10
+qwen/qwen3.6-35b-a3b@8bit          no-think           94.4%          84.8%    88.0% [85.5-90.1]    0      8
+qwen/qwen3.8-27b@4bit              no-think           91.2%          78.8%    82.9% [80.1-85.5]    0     22
+system                             no-think           64.4%           0.0%    21.5% [18.7-24.5]    0      0

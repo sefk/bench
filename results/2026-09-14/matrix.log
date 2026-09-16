@@ -1,0 +1,26 @@
+NOT measuring power (set POWER_LOG=/path/to/log to measure)
+matrix: 7 variants, sizes=0,1000,4000,16000 runs=3 -> results/2026-09-14
+
+=== fm:system -> results/2026-09-14/fm-system.json ===
+  done in 10m, 3 rows
+    16000tok: SKIPPED -- empty response from fm for a 10599-token prompt; its context window is 4096 tokens and it overflows silently
+
+=== qwen/qwen3.6-27b@4bit -> results/2026-09-14/qwen3.6-27b-4bit.json ===
+  done in 18m, 4 rows
+
+=== qwen/qwen3.8-27b@4bit -> results/2026-09-14/qwen3.8-27b-4bit.json ===
+  done in 18m, 4 rows
+
+=== qwen/qwen3.6-35b-a3b@4bit -> results/2026-09-14/qwen3.6-35b-a3b-4bit.json ===
+  done in 4m, 4 rows
+
+=== qwen/qwen3.6-27b@8bit -> results/2026-09-14/qwen3.6-27b-8bit.json ===
+  done in 24m, 4 rows
+
+=== qwen/qwen3.8-27b@8bit -> results/2026-09-14/qwen3.8-27b-8bit.json ===
+  done in 24m, 4 rows
+
+=== qwen/qwen3.6-35b-a3b@8bit -> results/2026-09-14/qwen3.6-35b-a3b-8bit.json ===
+  done in 5m, 4 rows
+
+matrix complete -> results/2026-09-14

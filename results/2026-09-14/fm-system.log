@@ -1,0 +1,5 @@
+NOT measuring power -- throughput only. Any energy figure derived from these results is an assumption, not a measurement. Pass --power-log FILE to measure it.
+
+fm:system
+  warmed up in 5 runs: 49.9 -> 49.9 tok/s
+  16000tok: SKIPPED -- empty response from fm for a 10599-token prompt; its context window is 4096 tokens and it overflows silently

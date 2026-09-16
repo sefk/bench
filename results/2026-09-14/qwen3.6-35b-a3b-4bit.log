@@ -1,0 +1,4 @@
+NOT measuring power -- throughput only. Any energy figure derived from these results is an assumption, not a measurement. Pass --power-log FILE to measure it.
+
+qwen/qwen3.6-35b-a3b@4bit
+  warmed up in 5 runs: 67.5 -> 67.5 tok/s

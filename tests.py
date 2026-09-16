@@ -40,15 +40,20 @@ plot = load_script("plot-quality-speed")
 
 class WarmUpTests(unittest.TestCase):
     """The ramp this exists to defeat was measured on the 37.75 GB MoE:
-    9.7 tok/s over the first 25 requests, 33.2 over the next 60, 41.9 warm."""
+    9.7 tok/s over the first 25 requests, 33.2 over the next 60, 41.9 once
+    warm -- roughly 22,000 generated tokens. Counting requests instead of
+    tokens stopped at 7.7 tok/s, on the ramp."""
 
-    def _run_with(self, rates):
+    def _run_with(self, rates, tokens_per_run=512):
         calls = {"n": 0}
 
         def fake_one_run(model, prompt, max_tokens, backend):
             i = calls["n"]
             calls["n"] += 1
-            return {"gen_tps": rates[min(i, len(rates) - 1)]}
+            return {
+                "gen_tps": rates[min(i, len(rates) - 1)],
+                "completion_tokens": tokens_per_run,
+            }
 
         original = bench.one_run
         bench.one_run = fake_one_run
@@ -57,31 +62,44 @@ class WarmUpTests(unittest.TestCase):
         finally:
             bench.one_run = original
 
-    def test_stops_once_the_rate_settles(self):
-        observed = self._run_with([10, 20, 30, 40, 41, 41.5, 41.2] + [41.3] * 10)
-        self.assertLess(len(observed), bench.WARMUP_MAX_RUNS)
-        self.assertGreater(observed[-1], 40, "must settle at the plateau, not on the ramp")
+    def test_does_not_stop_on_a_slow_climb(self):
+        """The real failure: three consecutive runs within tolerance early on
+        look like a plateau but are still on the ramp."""
+        ramp = [7.4, 7.7, 7.7, 7.9, 12.0, 20.0, 33.0, 41.0, 45.0]
+        observed, settled = self._run_with(ramp + [45.2] * 40)
+        self.assertGreater(max(observed), 44, "stopped while still climbing")
+        self.assertTrue(settled)
 
-    def test_does_not_stop_on_the_ramp(self):
-        """Three rising runs must not look settled just because they are close.
+    def test_stops_once_the_rate_plateaus(self):
+        observed, settled = self._run_with([10, 20, 30, 41, 41.5] + [41.3] * 40)
+        self.assertTrue(settled)
+        self.assertLess(
+            len(observed) * 512, bench.WARMUP_TOKEN_BUDGET,
+            "should stop well inside the budget once plateaued",
+        )
 
-        A model climbing 9.7 -> 33.2 -> 41.9 has consecutive pairs that are
-        individually close; stopping there is the bug being prevented.
+    def test_reports_unsettled_when_the_budget_runs_out(self):
+        """A rate still climbing when the budget ends must be flagged, not
+        quietly reported as if it were the warm number.
+
+        The climb has to stay above the tolerance to count: a *linear* climb
+        eventually grows by less than 5% per step, which is genuinely a
+        plateau and is correctly reported as settled.
         """
-        observed = self._run_with([9.7, 20, 33.2, 38, 41.9, 42.0, 42.1] + [42.0] * 10)
-        self.assertGreater(observed[-1], 41, "stopped while still climbing")
+        climbing = [5.0 * (1.2**i) for i in range(400)]
+        observed, settled = self._run_with(climbing)
+        self.assertFalse(settled)
+        self.assertGreaterEqual(len(observed) * 512, bench.WARMUP_TOKEN_BUDGET)
 
-    def test_flags_a_model_that_never_settles(self):
-        """A rate that keeps moving must exhaust the budget, so the caller can
-        warn rather than report a number off the ramp."""
-        observed = self._run_with([float(10 + 5 * i) for i in range(40)])
-        self.assertEqual(len(observed), bench.WARMUP_MAX_RUNS)
-
-    def test_settles_immediately_when_already_warm(self):
-        """A small model shows no ramp -- measured flat on the 16 GB dense
-        build -- and must not burn twelve runs discovering that."""
-        observed = self._run_with([18.0, 18.1, 17.9])
-        self.assertEqual(len(observed), bench.WARMUP_STABLE_RUNS)
+    def test_respects_a_minimum_amount_of_work(self):
+        """A model that looks flat from its very first runs must still do
+        real work before being declared warm -- that is exactly what the
+        large MoE does before it takes off."""
+        observed, _ = self._run_with([7.5] * 200, tokens_per_run=64)
+        self.assertGreaterEqual(
+            len(observed) * 64, bench.WARMUP_MIN_TOKENS,
+            "declared warm without generating the minimum tokens",
+        )
 
 
 class GradingTests(unittest.TestCase):

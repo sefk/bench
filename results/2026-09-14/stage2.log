@@ -1,0 +1,133 @@
+=== stage 2a: remaining quality targets + truncation retries (12:41:27) ===
+
+=== fm:system [no-think] 550 items (200 already done) ===
+  25/550  80.0% correct  3.87s/item  ~34m left
+  50/550  82.0% correct  3.73s/item  ~31m left
+  75/550  73.3% correct  2.65s/item  ~21m left
+  100/550  70.0% correct  2.10s/item  ~16m left
+  125/550  68.8% correct  1.78s/item  ~13m left
+  150/550  70.0% correct  1.56s/item  ~10m left
+  175/550  70.3% correct  1.41s/item  ~9m left
+  200/550  70.5% correct  1.29s/item  ~8m left
+  225/550  68.0% correct  1.20s/item  ~6m left
+  250/550  69.2% correct  1.14s/item  ~6m left
+  275/550  68.4% correct  1.08s/item  ~5m left
+  300/550  69.0% correct  1.03s/item  ~4m left
+  325/550  68.3% correct  0.99s/item  ~4m left
+  350/550  68.3% correct  0.96s/item  ~3m left
+  375/550  68.3% correct  0.92s/item  ~3m left
+  400/550  66.5% correct  0.90s/item  ~2m left
+  425/550  64.9% correct  0.87s/item  ~2m left
+  450/550  65.1% correct  0.85s/item  ~1m left
+  475/550  64.8% correct  0.83s/item  ~1m left
+  500/550  64.4% correct  0.81s/item  ~1m left
+  525/550  64.6% correct  0.80s/item  ~0m left
+  550/550  64.0% correct  0.78s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-35b-a3b@4bit [no-think] 10 items (740 already done) ===
+  10/10  70.0% correct  15.42s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-35b-a3b@8bit [no-think] 8 items (742 already done) ===
+  8/8  50.0% correct  24.59s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 22 items (728 already done) ===
+  22/22  72.7% correct  45.04s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 16 items (734 already done) ===
+  16/16  68.8% correct  48.31s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.8-27b@8bit [no-think] 750 items (0 already done) ===
+  25/750  100.0% correct  33.20s/item  ~401m left
+  50/750  100.0% correct  34.00s/item  ~397m left
+  75/750  98.7% correct  35.51s/item  ~399m left
+  100/750  98.0% correct  37.36s/item  ~405m left
+  125/750  96.8% correct  38.72s/item  ~403m left
+  150/750  96.0% correct  38.62s/item  ~386m left
+  175/750  95.4% correct  38.66s/item  ~371m left
+  200/750  95.5% correct  39.43s/item  ~361m left
+  225/750  95.6% correct  39.22s/item  ~343m left
+  250/750  96.0% correct  38.28s/item  ~319m left
+  275/750  94.5% correct  35.03s/item  ~277m left
+  300/750  93.3% correct  32.31s/item  ~242m left
+  325/750  92.9% correct  30.01s/item  ~213m left
+  350/750  92.3% correct  28.04s/item  ~187m left
+  375/750  91.5% correct  26.37s/item  ~165m left
+  400/750  90.8% correct  24.87s/item  ~145m left
+  425/750  90.4% correct  23.54s/item  ~128m left
+  450/750  89.8% correct  22.37s/item  ~112m left
+  475/750  89.7% correct  21.33s/item  ~98m left
+  500/750  89.2% correct  20.39s/item  ~85m left
+  525/750  89.0% correct  19.54s/item  ~73m left
+  550/750  88.5% correct  18.78s/item  ~63m left
+  575/750  88.0% correct  18.06s/item  ~53m left
+  600/750  87.8% correct  17.42s/item  ~44m left
+  625/750  87.5% correct  16.82s/item  ~35m left
+  650/750  87.4% correct  16.27s/item  ~27m left
+  675/750  87.3% correct  15.77s/item  ~20m left
+  700/750  86.7% correct  15.30s/item  ~13m left
+  725/750  86.3% correct  14.86s/item  ~6m left
+  750/750  86.3% correct  14.46s/item  ~0m left
+
+=== lmstudio:qwen/qwen3.6-27b@8bit [no-think] 163 items (587 already done) ===
+  25/163  84.0% correct  47.08s/item  ~108m left
+  50/163  90.0% correct  41.47s/item  ~78m left
+  75/163  93.3% correct  38.37s/item  ~56m left
+  100/163  94.0% correct  32.47s/item  ~34m left
+  125/163  93.6% correct  26.49s/item  ~17m left
+  150/163  89.3% correct  22.50s/item  ~5m left
+  163/163  90.2% correct  20.90s/item  ~0m left
+
+model                              mode               gsm8k           mmlu            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------------
+system                             no-think           80.8%          62.2%    68.4% [65.0-71.6]    0      0
+qwen/qwen3.6-27b@4bit              no-think           96.4%          86.2%    89.6% [87.2-91.6]    0      4
+qwen/qwen3.6-27b@8bit              no-think           96.8%          85.8%    89.5% [87.1-91.5]    0      1
+qwen/qwen3.6-35b-a3b@4bit          no-think           96.8%          83.8%    88.1% [85.6-90.3]    0      1
+qwen/qwen3.6-35b-a3b@8bit          no-think           96.0%          84.8%    88.5% [86.1-90.6]    0      3
+qwen/qwen3.8-27b@4bit              no-think           96.0%          78.8%    84.5% [81.8-86.9]    0      3
+qwen/qwen3.8-27b@8bit              no-think           96.0%          81.4%    86.3% [83.6-88.5]    0      4
+
+=== stage 2b: throughput matrix (17:21:29) ===
+NOT measuring power (set POWER_LOG=/path/to/log to measure)
+matrix: 7 variants, sizes=0,1000,4000,16000 runs=3 -> results/2026-09-14
+
+=== fm:system -> results/2026-09-14/fm-system.json ===
+  done in 0m, 3 rows
+    16000tok: SKIPPED -- empty response from fm for a 10576-token prompt; its context window is 4096 tokens and it overflows silently
+
+=== qwen/qwen3.6-35b-a3b@4bit -> results/2026-09-14/qwen3.6-35b-a3b-4bit.json ===
+  done in 0m, 0 rows
+    SKIPPED -- no completion tokens reported or counted
+
+=== qwen/qwen3.6-35b-a3b@8bit -> results/2026-09-14/qwen3.6-35b-a3b-8bit.json ===
+  done in 1m, 0 rows
+    SKIPPED -- no completion tokens reported or counted
+
+=== qwen/qwen3.8-27b@4bit -> results/2026-09-14/qwen3.8-27b-4bit.json ===
+  done in 0m, 0 rows
+    SKIPPED -- no completion tokens reported or counted
+
+=== qwen/qwen3.6-27b@4bit -> results/2026-09-14/qwen3.6-27b-4bit.json ===
+  done in 0m, 0 rows
+    SKIPPED -- no completion tokens reported or counted
+
+=== qwen/qwen3.8-27b@8bit -> results/2026-09-14/qwen3.8-27b-8bit.json ===
+  done in 1m, 0 rows
+    SKIPPED -- no completion tokens reported or counted
+
+=== qwen/qwen3.6-27b@8bit -> results/2026-09-14/qwen3.6-27b-8bit.json ===
+  done in 1m, 0 rows
+    SKIPPED -- no completion tokens reported or counted
+
+matrix complete -> results/2026-09-14
+
+=== stage 2c: export + plot (17:27:32) ===
+model                              mode               gsm8k           mmlu            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------------
+system                             no-think           80.8%          62.2%    68.4% [65.0-71.6]    0      0
+qwen/qwen3.6-27b@4bit              no-think           96.4%          86.2%    89.6% [87.2-91.6]    0      4
+qwen/qwen3.6-27b@8bit              no-think           96.8%          85.8%    89.5% [87.1-91.5]    0      1
+qwen/qwen3.6-35b-a3b@4bit          no-think           96.8%          83.8%    88.1% [85.6-90.3]    0      1
+qwen/qwen3.6-35b-a3b@8bit          no-think           96.0%          84.8%    88.5% [86.1-90.6]    0      3
+qwen/qwen3.8-27b@4bit              no-think           96.0%          78.8%    84.5% [81.8-86.9]    0      3
+qwen/qwen3.8-27b@8bit              no-think           96.0%          81.4%    86.3% [83.6-88.5]    0      4
