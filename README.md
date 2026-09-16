@@ -61,6 +61,22 @@ loading picks the right build:
 ./lmstudio-bench qwen/qwen3.6-27b@4bit qwen/qwen3.6-27b@8bit
 ```
 
+#### The prompt demands a long answer
+
+Decode rate is only meaningful measured over enough tokens. The earlier
+instruction — "reply with a single short sentence" — produced **255 tokens from
+Qwen** (which ignored it and ran to the cap) and **15 from Apple's model**
+(which obeyed it), so the two were being compared over a 24-second decode
+window and a 0.17-second one. The short-prompt case had the same problem.
+
+Both prompts now ask for output long enough to saturate any sane `max_tokens`.
+Models that already hit the cap are unaffected by the wording, so this does not
+disturb comparability with earlier runs.
+
+Note that `fm serve` **ignores `max_tokens`** and writes until it is done
+(1,026–1,492 tokens in practice), so `total_s` is not comparable across
+backends. Compare decode *rate*, or normalise to a fixed answer length.
+
 #### Warm-up
 
 Large models ramp. Measured on the 37.75 GB 8-bit MoE, decode ran **9.7 tok/s
