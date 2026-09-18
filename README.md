@@ -127,6 +127,43 @@ months later is comparable:
 `quality/make-items.py` rebuilds the item file from the upstream sources and
 exists for provenance; the benchmark loop does not use it.
 
+#### Coding: LiveCodeBench
+
+A third task, run only when asked for, and scored separately from the
+GSM8K+MMLU composite so that composite stays comparable with earlier runs:
+
+```sh
+./quality/make-code-items.py test6.jsonl        # once: builds quality/code-tests/
+./run-code-quality.sh                           # the default queue, resumable
+./quality-bench --task code lmstudio:qwen/qwen3.6-27b@8bit -o results/2026-09-17/quality-code.jsonl
+./quality-bench --regrade results/2026-09-17/quality-code.jsonl   # re-judge stored answers
+```
+
+All 175 problems of [LiveCodeBench][lcb] release v6 (AtCoder and LeetCode,
+2025-01-04 to 2025-04-06), with LiveCodeBench's own prompt. The last fenced
+code block in the answer is run against every hidden test (about 40 per
+problem), 6 s per test, and scores only if it passes them all. It runs under
+`sandbox-exec` with the network denied and writes confined to a scratch
+directory; there is no memory cap, because macOS does not enforce one.
+
+- **Contamination.** LiveCodeBench's point is dated problems, so a model can be
+  scored on ones published after its training cutoff. It stopped publishing
+  after v6, and every model here is from 2026, so that protection does not
+  apply. What is left is difficulty (it does not saturate like MMLU) and a
+  fixed set, so builds of one model compare fairly with each other; compare
+  against published LiveCodeBench numbers with care.
+- **Budget.** 4096 tokens. Even with reasoning off, Qwen reasons in prose
+  before writing code — 1,300 tokens on an easy problem — and a tighter cap
+  would score verbosity, as GSM8K's first budget did.
+- **Cost.** About 1,500 tokens a problem: ~1.5 h per MoE build, ~5 h per 4-bit
+  dense build, ~7 h per 8-bit dense build. `run-code-quality.sh` queues the
+  informative variants first and leaves the 8-bit dense builds to be named.
+- **Interval.** 175 items gives about ±7 points, so only large differences
+  are real.
+
+The hidden tests (~100 MB) are gitignored; `quality/make-code-items.py`
+rebuilds them from the pinned dataset revision.
+
 #### Reasoning mode is off by default
 
 Qwen3.x thinks by default, and a single multiple-choice item then costs 300+
@@ -332,5 +369,6 @@ Results are cached in memory and re-read automatically when a result file's
 mtime changes, so new runs show up on refresh without restarting the server.
 
 [django]: https://www.djangoproject.com
+[lcb]: https://livecodebench.github.io
 [lms]: https://lmstudio.ai
 [report]: REPORT.md
