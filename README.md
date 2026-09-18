@@ -277,10 +277,11 @@ written back.
 ```sh
 cd dashboard && uv sync && uv run manage.py runserver
 cd dashboard && uv run manage.py runserver 0.0.0.0:8000   # reachable from the LAN
-cd dashboard && honcho start                            # same via Procfile; PORT=8123 honcho start to change port
+cd dashboard && honcho start                            # via Procfile, on port 8101; PORT=8123 honcho start to change it
 ```
 
-Then open <http://127.0.0.1:8000/>. Run `uv run manage.py test` to run its
+Then open <http://127.0.0.1:8000/> (or <http://127.0.0.1:8101/> via
+`honcho start`). Run `uv run manage.py test` to run its
 test suite.
 
 The page has three tabs, all driven by the same filter sidebar:
