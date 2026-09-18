@@ -283,6 +283,19 @@ cd dashboard && honcho start                            # same via Procfile; POR
 Then open <http://127.0.0.1:8000/>. Run `uv run manage.py test` to run its
 test suite.
 
+The page has three tabs, all driven by the same filter sidebar:
+
+1. **Quality vs speed** — the interactive version of `plot-quality-speed`: one
+   point per variant (its most recent run), composite quality with its 95%
+   interval on X, a speed measure at one prompt size on Y.
+2. **Speed by dimension** — a speed measure across prompt sizes, with series
+   by variant, precision, quant, arch, version, runtime or date, plus a bar
+   comparison at one size.
+3. **Detailed measures** — the sortable table of every row.
+
+The selected tab and controls are kept in the URL, so a view can be
+bookmarked.
+
 The loader (`dashboard/bench/loader.py`) derives extra dimensions from each
 row's `model` field so results can be filtered and grouped:
 

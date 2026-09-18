@@ -10,11 +10,16 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
 # module-level cache: {"mtimes": {path: mtime}, "rows": [...]}
 _CACHE: dict[str, Any] = {"mtimes": {}, "rows": []}
+# runserver is threaded and the page fetches /api/meta/ and /api/rows/ at once.
+# Without the lock, the second request sees the mtimes the first one just
+# recorded, concludes nothing changed, and returns the still-empty cache.
+_CACHE_LOCK = threading.Lock()
 
 
 # Nominal weight precision, separated from the runtime that implements it.
@@ -174,7 +179,7 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
     return scores
 
 
-def _needs_reload(results_dir: Path) -> bool:
+def _current_mtimes(results_dir: Path) -> dict[str, float]:
     current = {}
     for path in list(_iter_result_files(results_dir)) + list(
         _iter_quality_files(results_dir)
@@ -183,10 +188,7 @@ def _needs_reload(results_dir: Path) -> bool:
             current[str(path)] = path.stat().st_mtime
         except OSError:
             continue
-    if current != _CACHE["mtimes"]:
-        _CACHE["mtimes"] = current
-        return True
-    return False
+    return current
 
 
 def load_rows(results_dir: Path, force: bool = False) -> list[dict]:
@@ -195,30 +197,37 @@ def load_rows(results_dir: Path, force: bool = False) -> list[dict]:
     result file is added, removed, or its mtime changes.
     """
     results_dir = Path(results_dir)
-    if force or _needs_reload(results_dir):
-        rows: list[dict] = []
-        for path in _iter_result_files(results_dir):
-            date = path.parent.name
-            try:
-                with path.open() as fh:
-                    data = json.load(fh)
-            except (OSError, json.JSONDecodeError):
-                continue
-            if not isinstance(data, list):
-                continue
-            for raw_row in data:
-                row = dict(raw_row)
-                row["date"] = date
-                row["source_file"] = path.name
-                model = row.get("model", "")
-                row.update(derive_dimensions(model))
-                rows.append(row)
+    with _CACHE_LOCK:
+        current = _current_mtimes(results_dir)
+        if force or current != _CACHE["mtimes"]:
+            _CACHE["rows"] = _read_rows(results_dir)
+            _CACHE["mtimes"] = current
+        return _CACHE["rows"]
 
-        quality = load_quality(results_dir)
-        for row in rows:
-            row.update(quality.get(row.get("model", ""), {}))
-        _CACHE["rows"] = rows
-    return _CACHE["rows"]
+
+def _read_rows(results_dir: Path) -> list[dict]:
+    rows: list[dict] = []
+    for path in _iter_result_files(results_dir):
+        date = path.parent.name
+        try:
+            with path.open() as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, list):
+            continue
+        for raw_row in data:
+            row = dict(raw_row)
+            row["date"] = date
+            row["source_file"] = path.name
+            model = row.get("model", "")
+            row.update(derive_dimensions(model))
+            rows.append(row)
+
+    quality = load_quality(results_dir)
+    for row in rows:
+        row.update(quality.get(row.get("model", ""), {}))
+    return rows
 
 
 MEASURES = [

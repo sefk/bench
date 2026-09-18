@@ -92,6 +92,42 @@ main {
     padding: 16px 20px;
 }
 
+.tab-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 0;
+}
+
+.tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+    color: var(--fg);
+}
+
+.tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.tab-content {
+    padding-top: 16px;
+}
+
+.tab-content[hidden] {
+    display: none;
+}
+
 .controls {
     display: flex;
     flex-wrap: wrap;
@@ -133,11 +169,16 @@ main {
     margin-bottom: 24px;
 }
 
+.chart-wrap.tall {
+    height: 560px;
+    max-width: 1000px;
+}
+
 .chart-wrap.small {
     height: 280px;
 }
 
-section h2 {
+.tab-content h2 {
     font-size: 14px;
     margin: 24px 0 8px 0;
 }
@@ -155,13 +196,7 @@ th, td {
     white-space: nowrap;
 }
 
-th:first-child, td:first-child,
-th:nth-child(2), td:nth-child(2),
-th:nth-child(3), td:nth-child(3),
-th:nth-child(4), td:nth-child(4),
-th:nth-child(5), td:nth-child(5),
-th:nth-child(6), td:nth-child(6),
-th:nth-child(7), td:nth-child(7) {
+th.text, td.text {
     text-align: left;
 }
 
@@ -187,7 +222,7 @@ tr.suspect {
     background: var(--warn-bg);
 }
 
-tr.suspect td:nth-child(13) {
+tr.suspect td.flag {
     border-left: 3px solid var(--warn-border);
     font-weight: 600;
 }
