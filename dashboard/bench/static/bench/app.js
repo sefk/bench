@@ -537,6 +537,7 @@
                                     `${measureLabel(state.qQuality)}: ${p.x.toFixed(1)}%` +
                                         (p.lo !== null ? ` [${p.lo.toFixed(1)}–${p.hi.toFixed(1)}]` : ""),
                                     `${measureLabel(state.qSpeed)}: ${fmt(p.y)}`,
+                                    ...(p.n ? [`quality items: ${p.n}`] : []),
                                     `date: ${r.date}`,
                                 ];
                                 if (p.rows.length > 1) lines.push(`(mean of ${p.rows.length} rows)`);
