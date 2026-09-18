@@ -324,8 +324,10 @@ test suite.
 The page has three tabs, all driven by the same filter sidebar:
 
 1. **Quality vs speed** — the interactive version of `plot-quality-speed`: one
-   point per variant (its most recent run), composite quality with its 95%
-   interval on X, a speed measure at one prompt size on Y.
+   point per variant (its most recent run), a speed measure at one prompt size
+   on X, a quality score (composite, GSM8K, MMLU or LiveCodeBench) with its 95%
+   interval on Y. The axes are the other way round from the SVG so the chart
+   runs tall, which fits a document column.
 2. **Speed by dimension** — a speed measure across prompt sizes, with series
    by variant, precision, quant, arch, version, runtime or date, plus a bar
    comparison at one size.

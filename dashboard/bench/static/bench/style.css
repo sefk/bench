@@ -170,8 +170,8 @@ main {
 }
 
 .chart-wrap.tall {
-    height: 560px;
-    max-width: 1000px;
+    height: 720px;
+    max-width: 640px;
 }
 
 .chart-wrap.small {

@@ -304,9 +304,10 @@
 
     // ---- quality vs speed tab ----------------------------------------------
     //
-    // Port of `plot-quality-speed`: one point per variant, quality on X with
-    // its 95% interval as a horizontal bar, speed on Y. The interesting region
-    // is the top right -- fast *and* correct.
+    // Adapted from `plot-quality-speed`: one point per variant, speed on X,
+    // quality on Y with its 95% interval as a vertical bar. Axes are swapped
+    // from the SVG so the chart runs tall, which suits a document column. The
+    // interesting region is the top right -- fast *and* correct.
 
     function archGroup(row) {
         return row.family === "apple" ? "apple" : row.arch;
@@ -347,8 +348,8 @@
             const ci = qualityFields(qualityKey);
             const withCI = isNum(row[ci.low]) && isNum(row[ci.high]);
             points.push({
-                x: row[qualityKey],
-                y: mean(current.map((r) => r[speedKey])),
+                x: mean(current.map((r) => r[speedKey])),
+                y: row[qualityKey],
                 lo: withCI ? row[ci.low] : null,
                 hi: withCI ? row[ci.high] : null,
                 n: row[ci.n],
@@ -373,13 +374,13 @@
                 ctx.strokeStyle = ds.backgroundColor;
                 for (const p of ds.data) {
                     if (p.lo === null) continue;
-                    const py = y.getPixelForValue(p.y);
-                    const x0 = x.getPixelForValue(p.lo);
-                    const x1 = x.getPixelForValue(p.hi);
+                    const px = x.getPixelForValue(p.x);
+                    const y0 = y.getPixelForValue(p.lo);
+                    const y1 = y.getPixelForValue(p.hi);
                     ctx.beginPath();
-                    ctx.moveTo(x0, py); ctx.lineTo(x1, py);
-                    ctx.moveTo(x0, py - 4); ctx.lineTo(x0, py + 4);
-                    ctx.moveTo(x1, py - 4); ctx.lineTo(x1, py + 4);
+                    ctx.moveTo(px, y0); ctx.lineTo(px, y1);
+                    ctx.moveTo(px - 4, y0); ctx.lineTo(px + 4, y0);
+                    ctx.moveTo(px - 4, y1); ctx.lineTo(px + 4, y1);
                     ctx.stroke();
                 }
             });
@@ -402,11 +403,13 @@
         },
     };
 
-    // Greedy placement, as in `plot-quality-speed`: the first candidate that
-    // stays on the plot and collides with nothing wins. Every point and its
+    // Greedy placement, after `plot-quality-speed`. Every point and its
     // confidence bar are obstacles from the start, so a label never sits on
-    // top of the interval it is annotating. Highest-quality points are placed
-    // first -- they are the ones the chart is mostly about.
+    // the interval it annotates. Candidates run right of the point, then left,
+    // then above and below at growing distances, clamped inside the plot; the
+    // first that touches nothing wins, and if every one touches something the
+    // least-overlapping is used. Highest-quality points are placed first --
+    // they are the ones the chart is mostly about.
     function placeLabels(ctx, points, x, y, area) {
         const placed = [];
         for (const p of points) {
@@ -414,34 +417,35 @@
             const py = y.getPixelForValue(p.y);
             placed.push([px - 7, py - 7, px + 7, py + 7]);
             if (p.lo !== null) {
-                placed.push([x.getPixelForValue(p.lo), py - 5, x.getPixelForValue(p.hi), py + 5]);
+                placed.push([px - 5, y.getPixelForValue(p.hi), px + 5, y.getPixelForValue(p.lo)]);
             }
         }
+        const overlap = (a, b) =>
+            Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]))
+            * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+
         const out = [];
-        for (const p of points.slice().sort((a, b) => b.x - a.x)) {
+        for (const p of points.slice().sort((a, b) => b.y - a.y)) {
             const px = x.getPixelForValue(p.x);
             const py = y.getPixelForValue(p.y);
             const w = ctx.measureText(p.label).width;
-            const candidates = [
-                [px + 10, py + 4], [px + 8, py - 9], [px + 8, py + 19],
-                [px - 10 - w, py + 4], [px - 8 - w, py - 9], [px - 8 - w, py + 19],
-                [px - w / 2, py - 12], [px - w / 2, py + 22],
-            ];
-            let chosen = null;
-            for (const [lx, ly] of candidates) {
-                if (lx < area.left || lx + w > area.right) continue;
+            const candidates = [];
+            for (const dy of [4, -9, 17, -22, 30, -35, 43]) {
+                candidates.push([px + 10, py + dy], [px - 10 - w, py + dy]);
+            }
+            for (const dy of [-12, 24, -25, 37]) candidates.push([px - w / 2, py + dy]);
+
+            let best = null;
+            for (const [cx, cy] of candidates) {
+                const lx = Math.min(Math.max(cx, area.left + 2), area.right - w - 2);
+                const ly = Math.min(Math.max(cy, area.top + 12), area.bottom - 4);
                 const box = [lx, ly - 10, lx + w, ly + 3];
-                if (placed.some((o) => box[0] < o[2] && o[0] < box[2] && box[1] < o[3] && o[1] < box[3])) continue;
-                chosen = [lx, ly, box];
-                break;
+                const cost = placed.reduce((sum, o) => sum + overlap(box, o), 0);
+                if (!best || cost < best.cost) best = { lx, ly, box, cost };
+                if (cost === 0) break;
             }
-            if (!chosen) {
-                // Nothing fits cleanly; keep it on the plot rather than drop it.
-                const lx = Math.min(Math.max(px + 10, area.left), area.right - w);
-                chosen = [lx, py + 4, [lx, py - 6, lx + w, py + 7]];
-            }
-            placed.push(chosen[2]);
-            out.push({ text: p.label, lx: chosen[0], ly: chosen[1] });
+            placed.push(best.box);
+            out.push({ text: p.label, lx: best.lx, ly: best.ly });
         }
         return out;
     }
@@ -477,16 +481,16 @@
             }))
             .filter((ds) => ds.data.length);
 
-        const xs = points.flatMap((p) => [p.x, p.lo, p.hi]).filter(isNum);
-        const xb = xs.length ? niceBounds(Math.min(...xs), Math.max(...xs)) : { min: 0, max: 100, step: 10 };
-        const ys = points.map((p) => p.y);
+        const xs = points.map((p) => p.x);
         const rate = RATE_MEASURES.includes(state.qSpeed);
-        const yb = ys.length ? niceBounds(rate ? 0 : Math.min(...ys), Math.max(...ys)) : { min: 0, max: 1, step: 0.2 };
-        if (rate) yb.min = 0;
+        const xb = xs.length ? niceBounds(rate ? 0 : Math.min(...xs), Math.max(...xs)) : { min: 0, max: 1, step: 0.2 };
+        if (rate) xb.min = 0;
+        const ys = points.flatMap((p) => [p.y, p.lo, p.hi]).filter(isNum);
+        const yb = ys.length ? niceBounds(Math.min(...ys), Math.max(...ys)) : { min: 0, max: 100, step: 10 };
 
         const n = Math.max(0, ...points.map((p) => p.n || 0));
         const qualityTitle = measureLabel(state.qQuality) + (n ? ` — ${n} items, measured on this machine` : "");
-        const direction = rate ? "Up and to the right is better." : "Down and to the right is better.";
+        const direction = rate ? "Up and to the right is better." : "Up and to the left is better.";
 
         drawChart("qualityChart", {
             type: "scatter",
@@ -499,15 +503,15 @@
                 scales: {
                     x: {
                         min: Math.max(0, xb.min),
-                        max: Math.min(100, xb.max),
-                        title: { display: true, text: qualityTitle },
-                        ticks: { stepSize: xb.step, callback: (v) => `${v}%` },
+                        max: xb.max,
+                        ticks: { stepSize: xb.step },
+                        title: { display: true, text: `${measureLabel(state.qSpeed)} @ ${state.qSize}` },
                     },
                     y: {
                         min: Math.max(0, yb.min),
-                        max: yb.max,
-                        ticks: { stepSize: yb.step },
-                        title: { display: true, text: `${measureLabel(state.qSpeed)} @ ${state.qSize}` },
+                        max: Math.min(100, yb.max),
+                        title: { display: true, text: qualityTitle },
+                        ticks: { stepSize: yb.step, callback: (v) => `${v}%` },
                     },
                 },
                 plugins: {
@@ -534,9 +538,9 @@
                                 const p = item.raw;
                                 const r = p.rows[0];
                                 const lines = [
-                                    `${measureLabel(state.qQuality)}: ${p.x.toFixed(1)}%` +
+                                    `${measureLabel(state.qQuality)}: ${p.y.toFixed(1)}%` +
                                         (p.lo !== null ? ` [${p.lo.toFixed(1)}–${p.hi.toFixed(1)}]` : ""),
-                                    `${measureLabel(state.qSpeed)}: ${fmt(p.y)}`,
+                                    `${measureLabel(state.qSpeed)}: ${fmt(p.x)}`,
                                     ...(p.n ? [`quality items: ${p.n}`] : []),
                                     `date: ${r.date}`,
                                 ];
