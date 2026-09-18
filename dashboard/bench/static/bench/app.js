@@ -249,6 +249,10 @@
     }
 
     function bindSelect(sel, key) {
+        // A bookmark can carry a value the control no longer offers (e.g. a
+        // quality measure on the speed tab); fall back to the first option.
+        const values = Array.from(sel.options, (o) => o.value);
+        if (!values.includes(state[key]) && values.length) state[key] = values[0];
         sel.value = state[key];
         sel.onchange = () => {
             state[key] = sel.value;
