@@ -32,7 +32,7 @@
     const TABLE_COLUMNS = [
         "date", "variant", "version", "arch", "quant", "precision", "runtime", "size",
         "prompt_tokens", "completion_tokens", "gen_tps", "prefill_tps",
-        "ttft", "total_s", "quality_pct", "quality_gsm8k", "quality_mmlu",
+        "ttft", "total_s", "quality_pct", "quality_gsm8k", "quality_mmlu", "quality_code",
         "ttft_spread", "watts", "tokens_per_wh",
     ];
     const TEXT_COLUMNS = new Set([
@@ -317,6 +317,15 @@
         return String(row.variant).replace(/^qwen/, "");
     }
 
+    // The composite's interval and item count predate the per-task ones and
+    // keep their original names.
+    function qualityFields(key) {
+        if (key === "quality_pct") {
+            return { low: "quality_ci_low", high: "quality_ci_high", n: "quality_n" };
+        }
+        return { low: `${key}_ci_low`, high: `${key}_ci_high`, n: `${key}_n` };
+    }
+
     function qualityPoints(rows) {
         const speedKey = state.qSpeed;
         const qualityKey = state.qQuality;
@@ -335,13 +344,14 @@
             const latest = variantRows.map((r) => r.date).sort().pop();
             const current = variantRows.filter((r) => r.date === latest);
             const row = current[0];
-            const withCI = qualityKey === "quality_pct"
-                && isNum(row.quality_ci_low) && isNum(row.quality_ci_high);
+            const ci = qualityFields(qualityKey);
+            const withCI = isNum(row[ci.low]) && isNum(row[ci.high]);
             points.push({
                 x: row[qualityKey],
                 y: mean(current.map((r) => r[speedKey])),
-                lo: withCI ? row.quality_ci_low : null,
-                hi: withCI ? row.quality_ci_high : null,
+                lo: withCI ? row[ci.low] : null,
+                hi: withCI ? row[ci.high] : null,
+                n: row[ci.n],
                 label: shortLabel(row),
                 group: archGroup(row),
                 rows: current,
@@ -474,7 +484,7 @@
         const yb = ys.length ? niceBounds(rate ? 0 : Math.min(...ys), Math.max(...ys)) : { min: 0, max: 1, step: 0.2 };
         if (rate) yb.min = 0;
 
-        const n = Math.max(0, ...points.flatMap((p) => p.rows.map((r) => r.quality_n || 0)));
+        const n = Math.max(0, ...points.map((p) => p.n || 0));
         const qualityTitle = measureLabel(state.qQuality) + (n ? ` — ${n} items, measured on this machine` : "");
         const direction = rate ? "Up and to the right is better." : "Down and to the right is better.";
 

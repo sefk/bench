@@ -176,6 +176,53 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(quality.summarise(rows)[0]["target"], "fm:system")
 
 
+    def test_code_is_scored_but_kept_out_of_the_composite(self):
+        """Folding code into the composite would move every composite score
+        recorded before the code task existed."""
+        rows = [self._rows(task="gsm8k", correct=True) for _ in range(4)]
+        rows += [self._rows(task="code", correct=False) for _ in range(6)]
+        summary = quality.summarise(rows)[0]
+        self.assertEqual(summary["composite"]["n"], 4)
+        self.assertEqual(summary["composite"]["pct"], 100.0)
+        self.assertEqual(summary["code"]["n"], 6)
+        self.assertEqual(summary["code"]["pct"], 0.0)
+
+    def test_code_only_run_has_no_composite(self):
+        summary = quality.summarise([self._rows(task="code")])[0]
+        self.assertNotIn("composite", summary)
+        self.assertEqual(summary["code"]["pct"], 100.0)
+
+
+class CodeGradingTests(unittest.TestCase):
+    """The pieces of the code grader that do not need a subprocess."""
+
+    def test_extracts_the_last_fenced_block(self):
+        text = "Sample:\n```\n3 4\n```\nSolution:\n```python\nprint(7)\n```\n"
+        self.assertEqual(quality.extract_code(text), "print(7)\n")
+
+    def test_extracts_an_unclosed_block_cut_off_by_the_budget(self):
+        self.assertEqual(quality.extract_code("```python\nx = 1\ny ="), "x = 1\ny =")
+
+    def test_no_fence_means_no_code(self):
+        self.assertEqual(quality.extract_code("print(7)"), "")
+
+    def test_outputs_ignore_whitespace_differences(self):
+        self.assertTrue(quality.outputs_match("1 2\n3\n\n", "1  2\r\n3"))
+
+    def test_outputs_compare_numbers_as_numbers(self):
+        self.assertTrue(quality.outputs_match("0.3333333", "0.33333333333"))
+        self.assertTrue(quality.outputs_match("2.50", "2.5"))
+        self.assertFalse(quality.outputs_match("0.34", "0.33"))
+
+    def test_outputs_reject_missing_or_extra_lines(self):
+        self.assertFalse(quality.outputs_match("1\n2", "1"))
+        self.assertFalse(quality.outputs_match("Yes", "No"))
+
+    def test_nan_is_never_a_match(self):
+        self.assertFalse(quality.outputs_match("nan", "nan0"))
+        self.assertFalse(quality.outputs_match("nan", "1.0"))
+
+
 class ResumeTests(unittest.TestCase):
     def test_errored_items_are_retried_but_good_ones_are_not(self):
         with tempfile.TemporaryDirectory() as tmp:

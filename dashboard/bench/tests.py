@@ -246,6 +246,28 @@ class QualityJoinTests(SimpleTestCase):
         scores = load_quality(self.results_dir)
         self.assertAlmostEqual(scores["qwen/qwen3.6-27b@4bit"]["quality_pct"], 73.3)
 
+    def test_code_scores_merge_without_blanking_the_composite(self):
+        """quality-code.json carries only the code task; joining it must add
+        quality_code, not wipe the GSM8K/MMLU scores from quality.json."""
+        (self.results_dir / "2026-09-14" / "quality-code.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "model": "qwen/qwen3.6-27b@4bit",
+                        "backend": "lmstudio",
+                        "target": "qwen/qwen3.6-27b@4bit",
+                        "mode": "no-think",
+                        "code": {"pct": 40.0, "ci95": [33.0, 47.4], "n": 175},
+                    }
+                ]
+            )
+        )
+        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        self.assertAlmostEqual(scores["quality_code"], 40.0)
+        self.assertAlmostEqual(scores["quality_code_ci_low"], 33.0)
+        self.assertAlmostEqual(scores["quality_pct"], 73.3)
+        self.assertAlmostEqual(scores["quality_gsm8k"], 80.0)
+
     def test_scatter_measures_available(self):
         meta = build_meta(load_rows(self.results_dir, force=True))
         keys = {m["key"] for m in meta["measures"]}

@@ -150,6 +150,10 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
     comparable with them -- the model is doing a different amount of work per
     item -- so mixing the two into one lookup would silently compare across
     modes. A later date wins, so a re-run supersedes an older score.
+
+    Scores are merged per field, not per entry: the code task is summarised in
+    its own file (`quality-code.json`), and its entry for a model must not
+    blank out that model's GSM8K/MMLU scores from `quality.json`.
     """
     scores: dict[str, dict] = {}
     for path in sorted(_iter_quality_files(results_dir)):
@@ -166,16 +170,27 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
             target = entry.get("target") or entry.get("model")
             if not target:
                 continue
-            composite = entry.get("composite") or {}
-            scores[target] = {
-                "quality_pct": composite.get("pct"),
-                "quality_ci_low": (composite.get("ci95") or [None, None])[0],
-                "quality_ci_high": (composite.get("ci95") or [None, None])[1],
-                "quality_n": composite.get("n"),
-                "quality_gsm8k": (entry.get("gsm8k") or {}).get("pct"),
-                "quality_mmlu": (entry.get("mmlu") or {}).get("pct"),
-                "quality_date": path.parent.name,
-            }
+            fields = {}
+            composite = entry.get("composite")
+            if composite:
+                ci = composite.get("ci95") or [None, None]
+                fields.update(
+                    quality_pct=composite.get("pct"),
+                    quality_ci_low=ci[0],
+                    quality_ci_high=ci[1],
+                    quality_n=composite.get("n"),
+                    quality_date=path.parent.name,
+                )
+            for task in ("gsm8k", "mmlu", "code"):
+                scored = entry.get(task)
+                if not scored:
+                    continue
+                ci = scored.get("ci95") or [None, None]
+                fields[f"quality_{task}"] = scored.get("pct")
+                fields[f"quality_{task}_ci_low"] = ci[0]
+                fields[f"quality_{task}_ci_high"] = ci[1]
+                fields[f"quality_{task}_n"] = scored.get("n")
+            scores.setdefault(target, {}).update(fields)
     return scores
 
 
@@ -238,6 +253,7 @@ MEASURES = [
     ("quality_pct", "Quality (% correct)"),
     ("quality_gsm8k", "Quality: GSM8K (%)"),
     ("quality_mmlu", "Quality: MMLU (%)"),
+    ("quality_code", "Quality: LiveCodeBench (%)"),
     ("watts", "Watts"),
     ("tokens_per_wh", "Tokens/Wh"),
 ]

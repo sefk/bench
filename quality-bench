@@ -13,6 +13,14 @@ Two auto-gradable tasks, sampled once with a fixed seed into
   mmlu    4-way multiple choice across 57 subjects, graded on the letter.
           Exercises knowledge recall. Sampled evenly per subject.
 
+And a third, run only when asked for with `--task code`, from
+`quality/code-items.jsonl` (see `quality/make-code-items.py`):
+
+  code    LiveCodeBench v6: 175 AtCoder/LeetCode problems. The program is
+          run against every hidden test; it scores only if it passes them all.
+          Kept out of the composite, so GSM8K+MMLU scores stay comparable
+          with runs recorded before it existed.
+
 Two backends, because the two servers speak different dialects:
 
   lmstudio  POST /api/v0/chat/completions -- returns usage and perf stats.
@@ -51,14 +59,21 @@ four hours in does not start over.
 Usage:
     ./quality-bench lmstudio:qwen/qwen3.6-35b-a3b@4bit -o out.jsonl
     ./quality-bench fm:system -o out.jsonl
+    ./quality-bench --task code lmstudio:qwen/qwen3.6-27b@4bit -o code.jsonl
     ./quality-bench --score out.jsonl
+    ./quality-bench --regrade code.jsonl     # re-run the grader on stored code
 """
 
 import argparse
+import gzip
 import json
+import math
+import os
 import re
+import resource
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -66,6 +81,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ITEMS = HERE / "quality" / "items.jsonl"
+CODE_ITEMS = HERE / "quality" / "code-items.jsonl"
+CODE_TESTS = HERE / "quality" / "code-tests"
 
 LMSTUDIO_URL = "http://localhost:1234/api/v0/chat/completions"
 FM_PORT = 1976
@@ -89,8 +106,18 @@ NO_THINK_PREFILL = "<think>\n\n</think>\n\n"
 # Truncation is still reported per target, because a model that cannot finish
 # inside a sane budget is a real cost -- it just should not masquerade as
 # getting the sums wrong.
-MAX_TOKENS = {"mmlu": 8, "gsm8k": 1536}
-MAX_TOKENS_THINK = {"mmlu": 1024, "gsm8k": 2048}
+#
+# Code gets 4096. Even with the reasoning pass switched off, Qwen works the
+# problem through in prose before writing any code -- 1,300 tokens for an easy
+# AtCoder B -- so a tight cap cuts off the answer before the code appears and
+# repeats GSM8K's mistake of scoring verbosity. `fm serve` ignores the budget.
+MAX_TOKENS = {"mmlu": 8, "gsm8k": 1536, "code": 4096}
+MAX_TOKENS_THINK = {"mmlu": 1024, "gsm8k": 2048, "code": 8192}
+
+# Tasks that make up the composite score. Code is reported on its own: folding
+# it in would move every composite number recorded before it existed.
+COMPOSITE_TASKS = ("gsm8k", "mmlu")
+TASKS = ("gsm8k", "mmlu", "code")
 
 GSM8K_INSTRUCTIONS = (
     "Solve the problem. Show your work briefly, then give the final answer on "
@@ -101,11 +128,44 @@ MMLU_INSTRUCTIONS = (
     "or D) and nothing else."
 )
 
+# LiveCodeBench's own prompt, so scores mean what theirs do. Its system
+# message is folded into the user turn because `fm serve` is sent no system
+# message by this script either.
+CODE_PREAMBLE = (
+    "You are an expert Python programmer. You will be given a question "
+    "(problem specification) and will generate a correct Python program that "
+    "matches the specification and passes all tests."
+)
+CODE_FORMAT_STARTER = (
+    "You will use the following starter code to write the solution to the "
+    "problem and enclose your code within delimiters."
+)
+CODE_FORMAT_STDIN = (
+    "Read the inputs from stdin solve the problem and write the answer to "
+    "stdout (do not directly test on the sample inputs). Enclose your code "
+    "within delimiters as follows. Ensure that when the python program runs, "
+    "it reads the inputs, runs the algorithm and writes output to STDOUT."
+)
+
 ################################################################################
 # Prompting
 
 
+def build_code_prompt(item):
+    if item["starter_code"]:
+        fmt, code = CODE_FORMAT_STARTER, item["starter_code"]
+    else:
+        fmt, code = CODE_FORMAT_STDIN, "# YOUR CODE HERE"
+    return (
+        f"{CODE_PREAMBLE}\n\n### Question:\n{item['question']}\n\n"
+        f"### Format: {fmt}\n```python\n{code}\n```\n\n"
+        f"### Answer: (use the provided format with backticks)\n"
+    )
+
+
 def build_prompt(item):
+    if item["task"] == "code":
+        return build_code_prompt(item)
     if item["task"] == "gsm8k":
         return f"{GSM8K_INSTRUCTIONS}\n\n{item['question']}"
     choices = "\n".join(
@@ -148,7 +208,213 @@ def grade_mmlu(text, expected):
     return got == expected, got
 
 
+################################################################################
+# Code grading
+#
+# Mirrors LiveCodeBench's harness: a common import prelude, 6 s per test, and
+# the program must pass every test. Grading stops at the first failure, so a
+# wrong program costs one test's time rather than forty.
+#
+# Generated code is untrusted, so it runs under `sandbox-exec` with the network
+# denied and writes confined to a scratch directory. There is no memory cap --
+# macOS does not enforce RLIMIT_AS -- so a runaway allocation is bounded only
+# by the timeout.
+
+CODE_TIMEOUT_S = 6
+
+CODE_PRELUDE = """\
+from string import *
+from re import *
+from datetime import *
+from collections import *
+from heapq import *
+from bisect import *
+from copy import *
+from math import *
+from random import *
+from statistics import *
+from itertools import *
+from functools import *
+from operator import *
+from io import *
+from sys import *
+from json import *
+from builtins import *
+from typing import *
+import string, re, datetime, collections, heapq, bisect, copy, math, random
+import statistics, itertools, functools, operator, io, sys, json
+sys.setrecursionlimit(50000)
+"""
+
+# Runs every functional (LeetCode-style) test in one process. Each input line
+# is one JSON-encoded argument; the result is compared after a JSON round
+# trip, so a returned tuple matches an expected list.
+FUNCTIONAL_DRIVER = """
+import json as _json, signal as _signal, sys as _sys
+
+def _alarm(*_):
+    raise TimeoutError
+
+_signal.signal(_signal.SIGALRM, _alarm)
+with open(_sys.argv[1]) as _fh:
+    _tests = _json.load(_fh)
+_verdict = "pass"
+for _i, _t in enumerate(_tests):
+    try:
+        _args = [_json.loads(_line) for _line in _t["input"].split("\\n")]
+        _signal.alarm(%d)
+        _got = getattr(Solution(), %r)(*_args)
+        _signal.alarm(0)
+    except TimeoutError:
+        _verdict = "timeout@%%d" %% _i
+        break
+    except BaseException as _exc:
+        _signal.alarm(0)
+        _verdict = "runtime_error@%%d:%%s" %% (_i, type(_exc).__name__)
+        break
+    try:
+        _ok = _json.loads(_json.dumps(_got)) == _json.loads(_t["output"])
+    except (TypeError, ValueError):
+        _ok = False
+    if not _ok:
+        _verdict = "wrong_answer@%%d" %% _i
+        break
+_sys.__stdout__.write("\\n@@VERDICT@@" + _verdict + "\\n")
+"""
+
+
+def extract_code(text):
+    """The last fenced block, as LiveCodeBench does.
+
+    Models often show the sample input in a block first and the solution
+    after, so the last one is the answer. No fence means no answer.
+    """
+    blocks = re.findall(r"```[^\n`]*\n(.*?)```", text, re.S)
+    if not blocks:
+        # An answer cut off by the token budget has an opening fence only.
+        tail = re.search(r"```(?:python|py)?\n(.*)$", text, re.S)
+        return tail.group(1) if tail else ""
+    return blocks[-1]
+
+
+def load_code_tests(item_id):
+    path = CODE_TESTS / f"{item_id}.json.gz"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} missing -- build it with quality/make-code-items.py"
+        )
+    with gzip.open(path, "rt") as fh:
+        return json.load(fh)
+
+
+def _sandbox_profile(workdir):
+    return (
+        "(version 1)\n(allow default)\n(deny network*)\n"
+        "(deny file-write*)\n"
+        f'(allow file-write* (subpath "{os.path.realpath(workdir)}") '
+        '(literal "/dev/null") (literal "/dev/dtracehelper"))\n'
+    )
+
+
+def _limit_child():
+    # A CPU cap as a backstop to the wall-clock timeout, and no core files.
+    resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+
+def _run_sandboxed(workdir, argv, stdin_text, timeout):
+    cmd = ["sandbox-exec", "-p", _sandbox_profile(workdir), sys.executable, "-B", "-I", *argv]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=stdin_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=workdir,
+            preexec_fn=_limit_child,
+            errors="replace",
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    return proc
+
+
+def outputs_match(got, expected):
+    """Line-by-line, whitespace-insensitive, numbers compared as numbers.
+
+    LiveCodeBench compares tokens exactly or as Decimals. This also accepts
+    floats within 1e-6, which is what AtCoder's own judge does for the
+    problems that print real numbers.
+    """
+    got_lines = [l.split() for l in got.strip().splitlines()]
+    exp_lines = [l.split() for l in expected.strip().splitlines()]
+    got_lines = [l for l in got_lines if l]
+    exp_lines = [l for l in exp_lines if l]
+    if len(got_lines) != len(exp_lines):
+        return False
+    for g_line, e_line in zip(got_lines, exp_lines):
+        if len(g_line) != len(e_line):
+            return False
+        for g, e in zip(g_line, e_line):
+            if g == e:
+                continue
+            try:
+                gf, ef = float(g), float(e)
+            except ValueError:
+                return False
+            if not (math.isfinite(gf) and math.isfinite(ef)):
+                return False
+            if not math.isclose(gf, ef, rel_tol=1e-6, abs_tol=1e-6):
+                return False
+    return True
+
+
+def run_code_tests(code, item, tests):
+    """Returns a verdict: 'pass', or '<kind>@<test index>'."""
+    if not code.strip():
+        return "no_code"
+    with tempfile.TemporaryDirectory(prefix="qb-code-") as workdir:
+        if item["testtype"] == "functional":
+            with open(os.path.join(workdir, "tests.json"), "w") as fh:
+                json.dump(tests, fh)
+            driver = FUNCTIONAL_DRIVER % (CODE_TIMEOUT_S, item["func_name"])
+            with open(os.path.join(workdir, "sol.py"), "w") as fh:
+                fh.write(CODE_PRELUDE + "\n" + code + "\n" + driver)
+            proc = _run_sandboxed(
+                workdir, ["sol.py", "tests.json"], "",
+                CODE_TIMEOUT_S * len(tests) + 10,
+            )
+            if proc is None:
+                return "timeout@?"
+            marker = proc.stdout.rsplit("@@VERDICT@@", 1)
+            if len(marker) != 2:
+                err = (proc.stderr.strip().splitlines() or ["?"])[-1][:80]
+                return f"runtime_error@load:{err}"
+            return marker[1].strip()
+
+        with open(os.path.join(workdir, "sol.py"), "w") as fh:
+            fh.write(CODE_PRELUDE + "\n" + code + "\n")
+        for i, test in enumerate(tests):
+            proc = _run_sandboxed(workdir, ["sol.py"], test["input"], CODE_TIMEOUT_S)
+            if proc is None:
+                return f"timeout@{i}"
+            if proc.returncode != 0:
+                err = (proc.stderr.strip().splitlines() or ["?"])[-1][:80]
+                return f"runtime_error@{i}:{err}"
+            if not outputs_match(proc.stdout, test["output"]):
+                return f"wrong_answer@{i}"
+        return "pass"
+
+
+def grade_code(text, item):
+    verdict = run_code_tests(extract_code(text), item, load_code_tests(item["id"]))
+    return verdict == "pass", verdict
+
+
 def grade(item, text):
+    if item["task"] == "code":
+        return grade_code(text, item)
     if item["task"] == "gsm8k":
         return grade_gsm8k(text, item["answer"])
     return grade_mmlu(text, item["answer"])
@@ -378,6 +644,17 @@ def wilson(successes, total, z=1.96):
     return max(0.0, centre - spread), min(1.0, centre + spread)
 
 
+def _score(rows):
+    correct = sum(1 for r in rows if r["correct"])
+    low, high = wilson(correct, len(rows))
+    return {
+        "n": len(rows),
+        "correct": correct,
+        "pct": 100 * correct / len(rows),
+        "ci95": [100 * low, 100 * high],
+    }
+
+
 def summarise(rows):
     """Collapse per-item records into one summary per (model, mode).
 
@@ -405,26 +682,13 @@ def summarise(rows):
             "mode": mode,
             "n": len(items),
         }
-        for task in ("gsm8k", "mmlu"):
+        for task in TASKS:
             subset = [r for r in items if r["task"] == task]
-            if not subset:
-                continue
-            correct = sum(1 for r in subset if r["correct"])
-            low, high = wilson(correct, len(subset))
-            entry[task] = {
-                "n": len(subset),
-                "correct": correct,
-                "pct": 100 * correct / len(subset),
-                "ci95": [100 * low, 100 * high],
-            }
-        correct = sum(1 for r in items if r["correct"])
-        low, high = wilson(correct, len(items))
-        entry["composite"] = {
-            "n": len(items),
-            "correct": correct,
-            "pct": 100 * correct / len(items),
-            "ci95": [100 * low, 100 * high],
-        }
+            if subset:
+                entry[task] = _score(subset)
+        composite = [r for r in items if r["task"] in COMPOSITE_TASKS]
+        if composite:
+            entry["composite"] = _score(composite)
         entry["refused"] = sum(1 for r in items if r.get("refused"))
         entry["truncated"] = sum(
             1 for r in items if r.get("finish_reason") == "length"
@@ -438,21 +702,22 @@ def summarise(rows):
 
 def print_summary(summaries):
     header = (
-        f"{'model':<34} {'mode':<9} {'gsm8k':>14} {'mmlu':>14} "
+        f"{'model':<34} {'mode':<9} {'gsm8k':>7} {'mmlu':>7} {'code':>7} "
         f"{'composite':>20} {'ref':>4} {'trunc':>6}"
     )
     print(header)
     print("-" * len(header))
     for s in summaries:
-        gsm = f"{s['gsm8k']['pct']:.1f}%" if "gsm8k" in s else "-"
-        mmlu = f"{s['mmlu']['pct']:.1f}%" if "mmlu" in s else "-"
-        comp = s["composite"]
+        cells = [
+            f"{s[task]['pct']:.1f}%" if task in s else "-" for task in TASKS
+        ]
+        comp = s.get("composite")
         composite = (
-            f"{comp['pct']:.1f}% "
-            f"[{comp['ci95'][0]:.1f}-{comp['ci95'][1]:.1f}]"
+            f"{comp['pct']:.1f}% [{comp['ci95'][0]:.1f}-{comp['ci95'][1]:.1f}]"
+            if comp else "-"
         )
         print(
-            f"{s['model']:<34} {s['mode']:<9} {gsm:>14} {mmlu:>14} "
+            f"{s['model']:<34} {s['mode']:<9} {cells[0]:>7} {cells[1]:>7} {cells[2]:>7} "
             f"{composite:>20} {s['refused']:>4} {s['truncated']:>6}"
         )
 
@@ -522,9 +787,40 @@ def _budget_was_raised(row, budgets):
     return recorded < budgets.get(row.get("task"), 0)
 
 
+def regrade(path, items_path):
+    """Re-judge stored code answers, rewriting the file in place.
+
+    Generation is the expensive half of a code run -- hours on the dense 8-bit
+    builds -- and grading is cheap, so a grader fix should not cost a re-run.
+    """
+    items = {
+        i["id"]: i
+        for i in (json.loads(l) for l in items_path.read_text().splitlines() if l.strip())
+    }
+    lines = path.read_text().splitlines()
+    changed = 0
+    out = []
+    for line in lines:
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("task") == "code" and not row.get("error") and row["id"] in items:
+            ok, got = grade(items[row["id"]], row.get("text") or "")
+            if (ok, got) != (row.get("correct"), row.get("got")):
+                changed += 1
+            row["correct"], row["got"] = ok, got
+        out.append(json.dumps(row))
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text("\n".join(out) + "\n")
+    tmp.replace(path)
+    print(f"regraded {path}: {changed} verdicts changed")
+    _, rows = load_done(path)
+    print_summary(summarise(rows))
+
+
 def main():
     ap = argparse.ArgumentParser(
-        description="Grade local models on a fixed GSM8K + MMLU item set."
+        description="Grade local models on fixed GSM8K, MMLU, and LiveCodeBench item sets."
     )
     ap.add_argument(
         "targets",
@@ -532,8 +828,12 @@ def main():
         help="backend:model, e.g. lmstudio:qwen/qwen3.6-27b@4bit or fm:system",
     )
     ap.add_argument("-o", "--out", default="quality-results.jsonl")
-    ap.add_argument("-i", "--items", default=str(ITEMS))
-    ap.add_argument("--task", choices=["gsm8k", "mmlu"], help="run one task only")
+    ap.add_argument("-i", "--items", help="item file (default: by task)")
+    ap.add_argument(
+        "--task",
+        choices=list(TASKS),
+        help="run one task only; `code` is never run unless asked for",
+    )
     ap.add_argument("-n", "--limit", type=int, help="first N items of each task")
     ap.add_argument(
         "--think",
@@ -542,7 +842,16 @@ def main():
     )
     ap.add_argument("--score", metavar="FILE", help="summarise an existing result file")
     ap.add_argument("--json", action="store_true", help="summary as JSON")
+    ap.add_argument(
+        "--regrade",
+        metavar="FILE",
+        help="re-run the code grader on the answers stored in FILE, in place",
+    )
     args = ap.parse_args()
+
+    if args.regrade:
+        regrade(Path(args.regrade), Path(args.items or CODE_ITEMS))
+        return
 
     if args.score:
         _, rows = load_done(Path(args.score))
@@ -555,7 +864,8 @@ def main():
     if not args.targets:
         ap.error("no targets given")
 
-    items = [json.loads(l) for l in Path(args.items).read_text().splitlines() if l.strip()]
+    items_path = args.items or (CODE_ITEMS if args.task == "code" else ITEMS)
+    items = [json.loads(l) for l in Path(items_path).read_text().splitlines() if l.strip()]
     if args.task:
         items = [i for i in items if i["task"] == args.task]
     if args.limit:
@@ -610,7 +920,12 @@ def main():
                         error = f"{type(exc).__name__}: {exc}"
                     latency = time.time() - t0
 
-                    ok, got = grade(item, reply["text"])
+                    try:
+                        ok, got = grade(item, reply["text"])
+                    except FileNotFoundError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - a grader bug must not end the run
+                        ok, got = False, f"grader_error:{type(exc).__name__}: {exc}"[:200]
                     correct_so_far += ok
                     record = {
                         "model": model,
@@ -630,12 +945,14 @@ def main():
                         "prompt_tokens": reply["prompt_tokens"],
                         "latency_s": round(latency, 3),
                         "error": error,
-                        "text": reply["text"][:2000],
+                        # Code answers are kept whole so --regrade can re-judge
+                        # them without regenerating.
+                        "text": reply["text"] if item["task"] == "code" else reply["text"][:2000],
                     }
                     fh.write(json.dumps(record) + "\n")
                     fh.flush()
 
-                    if n % 25 == 0 or n == len(pending):
+                    if n % 25 == 0 or n == len(pending) or item["task"] == "code":
                         rate = (time.time() - started) / n
                         remaining = rate * (len(pending) - n)
                         print(
