@@ -333,8 +333,9 @@ The page has three tabs, all driven by the same filter sidebar:
    comparison at one size.
 3. **Detailed measures** — the sortable table of every row.
 
-The selected tab and controls are kept in the URL, so a view can be
-bookmarked.
+Every selection — tab, controls, filters, table sort — is kept in the URL,
+so a view can be bookmarked or linked, and Back/Forward step between views.
+Only non-default choices are written, so a plain link opens the default view.
 
 The loader (`dashboard/bench/loader.py`) derives extra dimensions from each
 row's `model` field so results can be filtered and grouped:

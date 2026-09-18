@@ -39,11 +39,10 @@
         "date", "variant", "version", "arch", "quant", "precision", "runtime", "size",
     ]);
 
-    const state = {
-        rows: [],
-        meta: null,
+    // Everything a viewer can select, with its default. All of it round-trips
+    // through the URL, so any view can be bookmarked or linked.
+    const VIEW_DEFAULTS = {
         tab: "quality",
-        filters: {},       // dim -> Set of active values
         // quality tab
         qSize: "4000tok",
         qSpeed: "gen_tps",
@@ -56,6 +55,13 @@
         // table tab
         sortKey: "date",
         sortAsc: true,
+    };
+
+    const state = {
+        rows: [],
+        meta: null,
+        filters: {},       // dim -> Set of active values
+        ...VIEW_DEFAULTS,
     };
 
     const colorCache = new Map();
@@ -100,21 +106,43 @@
 
     const URL_KEYS = ["tab", "qSize", "qSpeed", "qQuality", "measure", "seriesBy", "compareSize"];
 
+    // Rebuilds the whole view from the URL, falling back to defaults for
+    // anything it does not mention -- so Back to a URL without a parameter
+    // really does return that selection to its default.
     function readStateFromURL() {
         const params = new URLSearchParams(window.location.search);
-        for (const dim of FILTER_DIMS) {
-            const v = params.get(dim);
-            if (v !== null) state.filters[dim] = new Set(v ? v.split(",") : []);
-        }
+        Object.assign(state, VIEW_DEFAULTS);
         for (const key of URL_KEYS) {
             if (params.get(key)) state[key] = params.get(key);
         }
-        if (params.get("logY")) state.logY = params.get("logY") === "1";
-        if (!TABS.includes(state.tab)) state.tab = "quality";
+        state.logY = params.get("logY") === "1";
+        if (params.get("sort")) state.sortKey = params.get("sort");
+        state.sortAsc = params.get("desc") !== "1";
+        if (!TABS.includes(state.tab)) state.tab = VIEW_DEFAULTS.tab;
+        if (!TABLE_COLUMNS.includes(state.sortKey)) state.sortKey = VIEW_DEFAULTS.sortKey;
+
+        for (const dim of FILTER_DIMS) {
+            const v = params.get(dim);
+            state.filters[dim] = v === null
+                ? new Set(state.meta[dim] || [])
+                : new Set(v ? v.split(",") : []);
+        }
+        const sizes = state.meta.size || [];
+        const fallbackSize = sizes.includes("4000tok") ? "4000tok" : sizes[0];
+        if (!sizes.includes(state.qSize)) state.qSize = fallbackSize;
+        if (!sizes.includes(state.compareSize)) state.compareSize = fallbackSize;
     }
 
-    function writeStateToURL() {
+    // Only non-default selections are written, which keeps shared links short.
+    // Each change is a new history entry, so Back steps through views.
+    function writeStateToURL(push) {
         const params = new URLSearchParams();
+        for (const key of URL_KEYS) {
+            if (state[key] !== VIEW_DEFAULTS[key]) params.set(key, state[key]);
+        }
+        if (state.logY) params.set("logY", "1");
+        if (state.sortKey !== VIEW_DEFAULTS.sortKey) params.set("sort", state.sortKey);
+        if (!state.sortAsc) params.set("desc", "1");
         for (const dim of FILTER_DIMS) {
             const all = state.meta[dim] || [];
             const active = state.filters[dim];
@@ -122,9 +150,13 @@
                 params.set(dim, Array.from(active).join(","));
             }
         }
-        for (const key of URL_KEYS) params.set(key, state[key]);
-        if (state.logY) params.set("logY", "1");
-        window.history.replaceState(null, "", `${window.location.pathname}?${params}`);
+        // Commas are legal in a query string; leaving them unescaped keeps
+        // filter lists readable in a shared link.
+        const qs = params.toString().replace(/%2C/g, ",");
+        const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+        if (url === window.location.pathname + window.location.search) return;
+        if (push) window.history.pushState(null, "", url);
+        else window.history.replaceState(null, "", url);
     }
 
     // ---- data load -------------------------------------------------------
@@ -136,17 +168,7 @@
         ]);
         state.meta = await metaResp.json();
         state.rows = (await rowsResp.json()).rows;
-
         readStateFromURL();
-        for (const dim of FILTER_DIMS) {
-            if (!state.filters[dim]) {
-                state.filters[dim] = new Set(state.meta[dim] || []);
-            }
-        }
-        const sizes = state.meta.size || [];
-        const fallbackSize = sizes.includes("4000tok") ? "4000tok" : sizes[0];
-        if (!sizes.includes(state.qSize)) state.qSize = fallbackSize;
-        if (!sizes.includes(state.compareSize)) state.compareSize = fallbackSize;
     }
 
     // ---- tabs --------------------------------------------------------------
@@ -732,7 +754,9 @@
 
     // Only the visible tab is drawn: Chart.js sizes a chart from its container,
     // and a container inside a hidden tab has no size.
-    function renderAll() {
+    // `push` is false when the view is being drawn *from* the URL (first load,
+    // Back/Forward); then the URL is only normalised, never added to history.
+    function renderAll(push = true) {
         showActiveTab();
         const rows = filteredRows();
         if (state.tab === "quality") {
@@ -743,7 +767,7 @@
         } else {
             renderTable(rows);
         }
-        writeStateToURL();
+        writeStateToURL(push);
     }
 
     async function init() {
@@ -753,7 +777,13 @@
         await loadData();
         renderFilters();
         renderControls();
-        renderAll();
+        renderAll(false);
+        window.addEventListener("popstate", () => {
+            readStateFromURL();
+            renderFilters();
+            renderControls();
+            renderAll(false);
+        });
     }
 
     init().catch(console.error);
