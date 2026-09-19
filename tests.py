@@ -256,6 +256,16 @@ class ResumeTests(unittest.TestCase):
             self.assertNotIn(("m", "no-think", "a"), done, "truncated must retry")
             self.assertIn(("m", "no-think", "b"), done, "finished must not retry")
 
+    def test_score_records_the_budget_it_reflects(self):
+        """After a 16k resume, finished 4k rows sit beside retried 16k ones;
+        the score reflects the larger budget."""
+        rows = [
+            {"model": "m", "backend": "lmstudio", "mode": "no-think", "task": "code",
+             "correct": True, "latency_s": 1.0, "max_tokens": budget}
+            for budget in (4096, 16384)
+        ]
+        self.assertEqual(quality.summarise(rows)[0]["code"]["max_tokens"], 16384)
+
     def test_truncation_at_the_current_budget_is_not_retried_forever(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "r.jsonl"

@@ -32,7 +32,7 @@
     const TABLE_COLUMNS = [
         "date", "variant", "version", "arch", "quant", "precision", "runtime", "size",
         "prompt_tokens", "completion_tokens", "gen_tps", "prefill_tps",
-        "ttft", "total_s", "quality_pct", "quality_gsm8k", "quality_mmlu", "quality_code",
+        "ttft", "total_s", "quality_pct", "quality_gsm8k", "quality_mmlu", "quality_code", "quality_code_16k",
         "ttft_spread", "watts", "tokens_per_wh",
     ];
     const TEXT_COLUMNS = new Set([

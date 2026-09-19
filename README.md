@@ -152,9 +152,15 @@ directory; there is no memory cap, because macOS does not enforce one.
   apply. What is left is difficulty (it does not saturate like MMLU) and a
   fixed set, so builds of one model compare fairly with each other; compare
   against published LiveCodeBench numbers with care.
-- **Budget.** 4096 tokens. Even with reasoning off, Qwen reasons in prose
-  before writing code — 1,300 tokens on an easy problem — and a tighter cap
-  would score verbosity, as GSM8K's first budget did.
+- **Budget.** 4096 tokens by default, and it is not enough. Even with
+  reasoning off, Qwen reasons in prose before writing code — 1,300 tokens on an
+  easy problem — and at 4k about half the medium and hard problems are cut off
+  before any code appears (none of those cut-offs were loops). The 4k score is
+  therefore "coding within a 4k budget". `BUDGET=16384 ./run-code-quality.sh
+  <variants>` re-runs only the truncated answers under a 16k cap into
+  `quality-code-16k.jsonl`, which is equivalent to a full 16k run at
+  temperature 0; the dashboard shows it as a separate measure beside the 4k
+  one.
 - **Cost.** About 1,500 tokens a problem: ~1.5 h per MoE build, ~5 h per 4-bit
   dense build, ~7 h per 8-bit dense build. `run-code-quality.sh` queues the
   informative variants first and leaves the 8-bit dense builds to be named.

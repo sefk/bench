@@ -143,6 +143,19 @@ def _iter_quality_files(results_dir: Path):
             yield path
 
 
+# Code scores depend heavily on the token budget: at 4k, half the hard
+# problems are cut off before any code is written. A run under a larger budget
+# is therefore its own measure (`quality_code_16k`), not a replacement for the
+# 4k one -- both are worth seeing side by side.
+CODE_BASE_BUDGET = 4096
+
+
+def _quality_field(task: str, max_tokens: int | None) -> str:
+    if task == "code" and max_tokens and max_tokens > CODE_BASE_BUDGET:
+        return f"quality_code_{max_tokens // 1024}k"
+    return f"quality_{task}"
+
+
 def load_quality(results_dir: Path) -> dict[str, dict]:
     """Map target id -> quality scores, from `quality*.json` summary files.
 
@@ -185,11 +198,12 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
                 scored = entry.get(task)
                 if not scored:
                     continue
+                name = _quality_field(task, scored.get("max_tokens"))
                 ci = scored.get("ci95") or [None, None]
-                fields[f"quality_{task}"] = scored.get("pct")
-                fields[f"quality_{task}_ci_low"] = ci[0]
-                fields[f"quality_{task}_ci_high"] = ci[1]
-                fields[f"quality_{task}_n"] = scored.get("n")
+                fields[name] = scored.get("pct")
+                fields[f"{name}_ci_low"] = ci[0]
+                fields[f"{name}_ci_high"] = ci[1]
+                fields[f"{name}_n"] = scored.get("n")
             scores.setdefault(target, {}).update(fields)
     return scores
 
@@ -253,7 +267,8 @@ MEASURES = [
     ("quality_pct", "Quality (% correct)"),
     ("quality_gsm8k", "Quality: GSM8K (%)"),
     ("quality_mmlu", "Quality: MMLU (%)"),
-    ("quality_code", "Quality: LiveCodeBench (%)"),
+    ("quality_code", "Quality: LiveCodeBench, 4k budget (%)"),
+    ("quality_code_16k", "Quality: LiveCodeBench, 16k budget (%)"),
     ("watts", "Watts"),
     ("tokens_per_wh", "Tokens/Wh"),
 ]

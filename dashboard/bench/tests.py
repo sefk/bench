@@ -268,6 +268,22 @@ class QualityJoinTests(SimpleTestCase):
         self.assertAlmostEqual(scores["quality_pct"], 73.3)
         self.assertAlmostEqual(scores["quality_gsm8k"], 80.0)
 
+    def test_a_larger_code_budget_is_its_own_measure(self):
+        """A 16k run must sit beside the 4k score, not overwrite it."""
+        date_dir = self.results_dir / "2026-09-14"
+        for name, budget, pct in (("quality-code.json", 4096, 36.0),
+                                  ("quality-code-16k.json", 16384, 52.0)):
+            (date_dir / name).write_text(json.dumps([{
+                "model": "qwen/qwen3.6-27b@4bit", "backend": "lmstudio",
+                "target": "qwen/qwen3.6-27b@4bit", "mode": "no-think",
+                "code": {"pct": pct, "ci95": [pct - 7, pct + 7], "n": 175,
+                         "max_tokens": budget},
+            }]))
+        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        self.assertAlmostEqual(scores["quality_code"], 36.0)
+        self.assertAlmostEqual(scores["quality_code_16k"], 52.0)
+        self.assertAlmostEqual(scores["quality_code_16k_ci_low"], 45.0)
+
     def test_scatter_measures_available(self):
         meta = build_meta(load_rows(self.results_dir, force=True))
         keys = {m["key"] for m in meta["measures"]}

@@ -424,7 +424,8 @@ def grade(item, text):
 # Backends
 
 
-def http_json(url, payload, timeout=900):
+# An hour: a 16k-token code answer on an 8-bit dense build runs ~25 minutes.
+def http_json(url, payload, timeout=3600):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
@@ -652,6 +653,10 @@ def _score(rows):
         "correct": correct,
         "pct": 100 * correct / len(rows),
         "ci95": [100 * low, 100 * high],
+        # The largest budget any row was answered under. A run resumed under a
+        # raised budget has retried every row truncated below it, so this is
+        # the budget the score as a whole reflects.
+        "max_tokens": max((r.get("max_tokens") or 0 for r in rows), default=0) or None,
     }
 
 
@@ -836,6 +841,12 @@ def main():
     )
     ap.add_argument("-n", "--limit", type=int, help="first N items of each task")
     ap.add_argument(
+        "--max-tokens",
+        type=int,
+        help="override the token budget for --task; rows truncated under a "
+        "smaller budget are retried on resume",
+    )
+    ap.add_argument(
         "--think",
         action="store_true",
         help="leave the model's reasoning mode on (much slower; see docstring)",
@@ -877,7 +888,11 @@ def main():
         items = kept
 
     mode = "think" if args.think else "no-think"
-    budgets = MAX_TOKENS_THINK if args.think else MAX_TOKENS
+    budgets = dict(MAX_TOKENS_THINK if args.think else MAX_TOKENS)
+    if args.max_tokens:
+        if not args.task:
+            ap.error("--max-tokens needs --task")
+        budgets[args.task] = args.max_tokens
     out_path = Path(args.out)
     done, _ = load_done(out_path, budgets)
 
