@@ -1,0 +1,17 @@
+
+=== window 2026-09-20 22:57:10 -> 2026-09-20 22:59:10 ===
+code quality: 1 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+  seeded 176 answers for qwen/qwen3.6-27b@4bit from quality-code.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 22:57:10 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 94 items (81 already done) ===
+2026-09-20 22:59:10 window closed -- stopping; resumes next window
+
+=== window 2026-09-20 22:59:53 -> 2026-09-20 23:01:53 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 22:59:53 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 94 items (81 already done) ===
+2026-09-20 23:01:53 window closed -- stopping; resumes next window
