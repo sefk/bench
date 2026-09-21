@@ -1,0 +1,102 @@
+[
+  {
+    "model": "system",
+    "backend": "fm",
+    "target": "fm:system",
+    "mode": "no-think",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 29,
+      "pct": 16.571428571428573,
+      "ci95": [
+        11.792853762045588,
+        22.786125625300528
+      ],
+      "max_tokens": 4096
+    },
+    "refused": 0,
+    "truncated": 0,
+    "median_latency_s": 8.618
+  },
+  {
+    "model": "qwen/qwen3.6-27b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-27b@4bit",
+    "mode": "no-think",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 73,
+      "pct": 41.714285714285715,
+      "ci95": [
+        34.663288177927875,
+        49.12124517449124
+      ],
+      "max_tokens": 4096
+    },
+    "refused": 0,
+    "truncated": 94,
+    "median_latency_s": 221.68
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-35b-a3b@4bit",
+    "mode": "no-think",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 63,
+      "pct": 36.0,
+      "ci95": [
+        29.259319039369423,
+        43.342133866442204
+      ],
+      "max_tokens": 4096
+    },
+    "refused": 0,
+    "truncated": 88,
+    "median_latency_s": 61.75
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b@8bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-35b-a3b@8bit",
+    "mode": "no-think",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 67,
+      "pct": 38.285714285714285,
+      "ci95": [
+        31.408750549869787,
+        45.665934534584835
+      ],
+      "max_tokens": 4096
+    },
+    "refused": 0,
+    "truncated": 92,
+    "median_latency_s": 81.081
+  },
+  {
+    "model": "qwen/qwen3.8-27b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.8-27b@4bit",
+    "mode": "no-think",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 67,
+      "pct": 38.285714285714285,
+      "ci95": [
+        31.408750549869787,
+        45.665934534584835
+      ],
+      "max_tokens": 4096
+    },
+    "refused": 0,
+    "truncated": 84,
+    "median_latency_s": 190.975
+  }
+]
