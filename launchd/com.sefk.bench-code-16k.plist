@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.sefk.bench-code-16k</string>
+
+	<!-- LiveCodeBench at a 16k budget over the dense Qwen builds: tens of
+	     hours of decoding, taken midnight to 06:00 a night. The script stops
+	     itself at the window's end and resumes the next night.
+
+	     Install:  cp launchd/com.sefk.bench-code-16k.plist ~/Library/LaunchAgents/
+	               launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sefk.bench-code-16k.plist
+	     Remove:   launchctl bootout gui/$(id -u)/com.sefk.bench-code-16k -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/sefk/src/bench/nightly-code-window.sh</string>
+	</array>
+
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>0</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<false/>
+
+	<!-- launchd starts with a minimal PATH; the script also sets its own. -->
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Users/sefk/.lmstudio/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>WINDOW_END</key>
+		<string>06:00</string>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>/Users/sefk/Library/Logs/bench-code-16k.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/sefk/Library/Logs/bench-code-16k.log</string>
+</dict>
+</plist>
