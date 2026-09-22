@@ -34,6 +34,7 @@ Usage:  ./make-code-items.py test6.jsonl
 
 import argparse
 import base64
+import re
 import gzip
 import io
 import json
@@ -43,6 +44,30 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REVISION = "0fe84c3912ea0c4d4a78037083943e8f0c4dd505"
+
+
+# Judges accept real-valued answers within a stated tolerance, and the wording
+# differs by site: AtCoder says "absolute or relative error ... does not exceed
+# 10^{-8}", LeetCode says "Answers within 10^-5 of the actual answer will be
+# accepted". Grading everything at one tolerance either rejects correct answers
+# or accepts imprecise ones, so the item carries what its statement says.
+_TOLERANCE_CONTEXT = re.compile(r"error|accepted|precision|tolerance", re.IGNORECASE)
+_TOLERANCE_VALUE = re.compile(r"10\^\{?\s*-\s*(\d+)\}?|1e-(\d+)", re.IGNORECASE)
+
+
+def stated_tolerance(question):
+    """The loosest tolerance the statement offers, or None for exact answers.
+
+    Read per sentence so a constraint like `1 <= n <= 10^5` cannot be mistaken
+    for a precision clause.
+    """
+    found = []
+    for sentence in re.split(r"(?<=[.!?])\s+|\n", question):
+        if not _TOLERANCE_CONTEXT.search(sentence):
+            continue
+        for match in _TOLERANCE_VALUE.finditer(sentence):
+            found.append(float(f"1e-{match.group(1) or match.group(2)}"))
+    return max(found) if found else None
 
 
 class _StringsOnly(pickle.Unpickler):
@@ -91,6 +116,7 @@ def main():
                 "func_name": json.loads(row["metadata"] or "{}").get("func_name"),
                 "testtype": testtypes.pop(),
                 "n_tests": len(tests),
+                "tolerance": stated_tolerance(row["question_content"]),
                 # Graded by passing every test; there is no single answer string.
                 "answer": "pass",
             }

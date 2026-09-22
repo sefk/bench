@@ -218,9 +218,54 @@ class CodeGradingTests(unittest.TestCase):
         self.assertFalse(quality.outputs_match("1\n2", "1"))
         self.assertFalse(quality.outputs_match("Yes", "No"))
 
+    def test_outputs_honour_a_tighter_problem_tolerance(self):
+        """abc392_d wants 1e-8; grading it at the 1e-6 default would pass an
+        answer the judge rejects."""
+        self.assertTrue(quality.outputs_match("1.0000001", "1.0"))
+        self.assertFalse(quality.outputs_match("1.0000001", "1.0", 1e-8))
+
+    def test_functional_results_compare_within_tolerance(self):
+        """A binary search that should return 1.0 lands on 0.9999999999999999,
+        and the judge accepts it; strict equality does not."""
+        self.assertTrue(quality.values_match(0.9999999999999999, 1.0, 1e-5))
+        self.assertTrue(quality.values_match([1.0, 2.5], (1.0000000001, 2.5), 1e-6))
+        self.assertFalse(quality.values_match(1.01, 1.0, 1e-5))
+
+    def test_booleans_are_never_compared_by_tolerance(self):
+        """True == 1 in Python and LiveCodeBench accepts that, so it is kept.
+        What a boolean must not get is float tolerance: near-1 is not True."""
+        self.assertTrue(quality.values_match(True, 1, 1e-6))
+        self.assertFalse(quality.values_match(True, 1.000001, 1e-5))
+        self.assertFalse(quality.values_match([1, 2], [1, 2, 3], 1e-6))
+        self.assertTrue(quality.values_match({"a": 1.0}, {"a": 1.0}, 1e-6))
+
     def test_nan_is_never_a_match(self):
         self.assertFalse(quality.outputs_match("nan", "nan0"))
         self.assertFalse(quality.outputs_match("nan", "1.0"))
+
+
+class CodeToleranceParsingTests(unittest.TestCase):
+    """The item builder reads each problem's stated precision."""
+
+    def setUp(self):
+        self.mk = load_script("quality/make-code-items.py")
+
+    def test_atcoder_wording(self):
+        q = ("Print the answer. Your answer is considered correct if the "
+             "absolute or relative error from the true solution does not "
+             "exceed 10^{-8}. Constraints - 2 \\leq N \\leq 100")
+        self.assertEqual(self.mk.stated_tolerance(q), 1e-8)
+
+    def test_leetcode_wording(self):
+        q = "Answers within 10^-5 of the actual answer will be accepted."
+        self.assertEqual(self.mk.stated_tolerance(q), 1e-5)
+
+    def test_constraints_are_not_mistaken_for_precision(self):
+        q = "1 <= squares.length <= 5 * 10^4\n0 <= x_i, y_i <= 10^9"
+        self.assertIsNone(self.mk.stated_tolerance(q))
+
+    def test_exact_problems_have_no_tolerance(self):
+        self.assertIsNone(self.mk.stated_tolerance("Print the number of ways."))
 
 
 class ResumeTests(unittest.TestCase):

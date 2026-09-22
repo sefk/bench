@@ -222,6 +222,11 @@ def grade_mmlu(text, expected):
 
 CODE_TIMEOUT_S = 6
 
+# Competitive-programming judges accept real-valued answers within a stated
+# tolerance. Most of these problems ask for 1e-6; a few demand more (AtCoder
+# abc392_d wants 1e-8), and the item carries that when its statement says so.
+CODE_DEFAULT_TOLERANCE = 1e-6
+
 CODE_PRELUDE = """\
 from string import *
 from re import *
@@ -251,6 +256,21 @@ sys.setrecursionlimit(50000)
 # trip, so a returned tuple matches an expected list.
 FUNCTIONAL_DRIVER = """
 import json as _json, signal as _signal, sys as _sys
+import math as _math
+
+def _values_match(got, expected, tol):
+    if isinstance(got, bool) or isinstance(expected, bool):
+        return got == expected
+    if isinstance(got, (int, float)) and isinstance(expected, (int, float)):
+        return _math.isfinite(got) and _math.isfinite(expected) and _math.isclose(
+            float(got), float(expected), rel_tol=tol, abs_tol=tol)
+    if isinstance(got, (list, tuple)) and isinstance(expected, (list, tuple)):
+        return len(got) == len(expected) and all(
+            _values_match(g, e, tol) for g, e in zip(got, expected))
+    if isinstance(got, dict) and isinstance(expected, dict):
+        return got.keys() == expected.keys() and all(
+            _values_match(got[k], expected[k], tol) for k in got)
+    return got == expected
 
 def _alarm(*_):
     raise TimeoutError
@@ -273,7 +293,7 @@ for _i, _t in enumerate(_tests):
         _verdict = "runtime_error@%%d:%%s" %% (_i, type(_exc).__name__)
         break
     try:
-        _ok = _json.loads(_json.dumps(_got)) == _json.loads(_t["output"])
+        _ok = _values_match(_json.loads(_json.dumps(_got)), _json.loads(_t["output"]), %s)
     except (TypeError, ValueError):
         _ok = False
     if not _ok:
@@ -316,13 +336,17 @@ def _sandbox_profile(workdir):
     )
 
 
-def _limit_child():
+def _limit_child(cpu_seconds=60):
     # A CPU cap as a backstop to the wall-clock timeout, and no core files.
-    resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
+    # A functional suite runs every test in one child, so the cap has to cover
+    # all of them: at 6 s each, a 40-test suite can legitimately want 240 s,
+    # and a fixed 60 s would kill a valid solution partway through.
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
 def _run_sandboxed(workdir, argv, stdin_text, timeout):
+    cpu_cap = int(timeout) + 30
     cmd = ["sandbox-exec", "-p", _sandbox_profile(workdir), sys.executable, "-B", "-I", *argv]
     try:
         proc = subprocess.run(
@@ -332,7 +356,7 @@ def _run_sandboxed(workdir, argv, stdin_text, timeout):
             text=True,
             timeout=timeout,
             cwd=workdir,
-            preexec_fn=_limit_child,
+            preexec_fn=lambda: _limit_child(cpu_cap),
             errors="replace",
         )
     except subprocess.TimeoutExpired:
@@ -340,13 +364,37 @@ def _run_sandboxed(workdir, argv, stdin_text, timeout):
     return proc
 
 
-def outputs_match(got, expected):
-    """Line-by-line, whitespace-insensitive, numbers compared as numbers.
+def numbers_match(got, expected, tol):
+    """Equal as numbers, within the problem's tolerance (absolute or relative,
+    as the judges state it)."""
+    if not (math.isfinite(got) and math.isfinite(expected)):
+        return False
+    return math.isclose(got, expected, rel_tol=tol, abs_tol=tol)
 
-    LiveCodeBench compares tokens exactly or as Decimals. This also accepts
-    floats within 1e-6, which is what AtCoder's own judge does for the
-    problems that print real numbers.
+
+def values_match(got, expected, tol):
+    """Compare decoded JSON, accepting floats within tolerance.
+
+    Strict equality rejects correct answers: a binary search that should
+    return 1.0 lands on 0.9999999999999999, and the judge accepts it.
     """
+    if isinstance(got, bool) or isinstance(expected, bool):
+        return got == expected
+    if isinstance(got, (int, float)) and isinstance(expected, (int, float)):
+        return numbers_match(float(got), float(expected), tol)
+    if isinstance(got, (list, tuple)) and isinstance(expected, (list, tuple)):
+        return len(got) == len(expected) and all(
+            values_match(g, e, tol) for g, e in zip(got, expected)
+        )
+    if isinstance(got, dict) and isinstance(expected, dict):
+        return got.keys() == expected.keys() and all(
+            values_match(got[k], expected[k], tol) for k in got
+        )
+    return got == expected
+
+
+def outputs_match(got, expected, tol=CODE_DEFAULT_TOLERANCE):
+    """Line-by-line, whitespace-insensitive, numbers compared as numbers."""
     got_lines = [l.split() for l in got.strip().splitlines()]
     exp_lines = [l.split() for l in expected.strip().splitlines()]
     got_lines = [l for l in got_lines if l]
@@ -363,9 +411,7 @@ def outputs_match(got, expected):
                 gf, ef = float(g), float(e)
             except ValueError:
                 return False
-            if not (math.isfinite(gf) and math.isfinite(ef)):
-                return False
-            if not math.isclose(gf, ef, rel_tol=1e-6, abs_tol=1e-6):
+            if not numbers_match(gf, ef, tol):
                 return False
     return True
 
@@ -374,11 +420,12 @@ def run_code_tests(code, item, tests):
     """Returns a verdict: 'pass', or '<kind>@<test index>'."""
     if not code.strip():
         return "no_code"
+    tol = item.get("tolerance") or CODE_DEFAULT_TOLERANCE
     with tempfile.TemporaryDirectory(prefix="qb-code-") as workdir:
         if item["testtype"] == "functional":
             with open(os.path.join(workdir, "tests.json"), "w") as fh:
                 json.dump(tests, fh)
-            driver = FUNCTIONAL_DRIVER % (CODE_TIMEOUT_S, item["func_name"])
+            driver = FUNCTIONAL_DRIVER % (CODE_TIMEOUT_S, item["func_name"], tol)
             with open(os.path.join(workdir, "sol.py"), "w") as fh:
                 fh.write(CODE_PRELUDE + "\n" + code + "\n" + driver)
             proc = _run_sandboxed(
@@ -402,7 +449,7 @@ def run_code_tests(code, item, tests):
             if proc.returncode != 0:
                 err = (proc.stderr.strip().splitlines() or ["?"])[-1][:80]
                 return f"runtime_error@{i}:{err}"
-            if not outputs_match(proc.stdout, test["output"]):
+            if not outputs_match(proc.stdout, test["output"], tol):
                 return f"wrong_answer@{i}"
         return "pass"
 
