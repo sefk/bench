@@ -284,6 +284,19 @@ class QualityJoinTests(SimpleTestCase):
         self.assertAlmostEqual(scores["quality_code_16k"], 52.0)
         self.assertAlmostEqual(scores["quality_code_16k_ci_low"], 45.0)
 
+    def test_a_partial_budget_run_is_flagged(self):
+        """While a 16k run is still regenerating truncated answers its score
+        is a lower bound; the dashboard needs to know that."""
+        (self.results_dir / "2026-09-14" / "quality-code-16k.json").write_text(
+            json.dumps([{
+                "model": "qwen/qwen3.6-27b@4bit", "backend": "lmstudio",
+                "target": "qwen/qwen3.6-27b@4bit", "mode": "no-think",
+                "code": {"pct": 53.1, "ci95": [45.6, 60.4], "n": 175,
+                         "max_tokens": 16384, "pending": 31},
+            }]))
+        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        self.assertEqual(scores["quality_code_16k_pending"], 31)
+
     def test_scatter_measures_available(self):
         meta = build_meta(load_rows(self.results_dir, force=True))
         keys = {m["key"] for m in meta["measures"]}

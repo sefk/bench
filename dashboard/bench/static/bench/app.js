@@ -344,9 +344,15 @@
     // keep their original names.
     function qualityFields(key) {
         if (key === "quality_pct") {
-            return { low: "quality_ci_low", high: "quality_ci_high", n: "quality_n" };
+            return {
+                low: "quality_ci_low", high: "quality_ci_high",
+                n: "quality_n", pending: "quality_pending",
+            };
         }
-        return { low: `${key}_ci_low`, high: `${key}_ci_high`, n: `${key}_n` };
+        return {
+            low: `${key}_ci_low`, high: `${key}_ci_high`,
+            n: `${key}_n`, pending: `${key}_pending`,
+        };
     }
 
     function qualityPoints(rows) {
@@ -375,7 +381,11 @@
                 lo: withCI ? row[ci.low] : null,
                 hi: withCI ? row[ci.high] : null,
                 n: row[ci.n],
-                label: shortLabel(row),
+                // A score whose run is still regenerating answers under a
+                // raised budget can only go up; drawn hollow and labelled so
+                // it is not read as a finished measurement.
+                pending: row[ci.pending] || 0,
+                label: shortLabel(row) + (row[ci.pending] ? " (partial)" : ""),
                 group: archGroup(row),
                 rows: current,
             });
@@ -393,7 +403,9 @@
             ctx.globalAlpha = 0.45;
             chart.data.datasets.forEach((ds, i) => {
                 if (!chart.isDatasetVisible(i)) return;
-                ctx.strokeStyle = ds.backgroundColor;
+                // borderColor, not backgroundColor: the latter is a per-point
+                // array so partial runs can be drawn hollow.
+                ctx.strokeStyle = ds.borderColor;
                 for (const p of ds.data) {
                     if (p.lo === null) continue;
                     const px = x.getPixelForValue(p.x);
@@ -495,9 +507,11 @@
             .map((g) => ({
                 label: g.label,
                 data: points.filter((p) => p.group === g.key),
-                backgroundColor: g.color,
-                borderColor: cssVar("--bg") || "#fff",
-                borderWidth: 1.5,
+                backgroundColor: points
+                    .filter((p) => p.group === g.key)
+                    .map((p) => (p.pending ? (cssVar("--bg") || "#fff") : g.color)),
+                borderColor: g.color,
+                borderWidth: 2,
                 pointRadius: 6,
                 pointHoverRadius: 8,
             }))
@@ -564,6 +578,9 @@
                                         (p.lo !== null ? ` [${p.lo.toFixed(1)}–${p.hi.toFixed(1)}]` : ""),
                                     `${measureLabel(state.qSpeed)}: ${fmt(p.x)}`,
                                     ...(p.n ? [`quality items: ${p.n}`] : []),
+                                    ...(p.pending
+                                        ? [`partial: ${p.pending} answers still to regenerate`]
+                                        : []),
                                     `date: ${r.date}`,
                                 ];
                                 if (p.rows.length > 1) lines.push(`(mean of ${p.rows.length} rows)`);

@@ -204,6 +204,10 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
                 fields[f"{name}_ci_low"] = ci[0]
                 fields[f"{name}_ci_high"] = ci[1]
                 fields[f"{name}_n"] = scored.get("n")
+                # >0 while a raised-budget run is still working through the
+                # answers truncated under the smaller one: the score is a
+                # lower bound, and the dashboard says so.
+                fields[f"{name}_pending"] = scored.get("pending") or 0
             scores.setdefault(target, {}).update(fields)
     return scores
 

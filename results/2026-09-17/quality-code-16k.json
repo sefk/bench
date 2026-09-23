@@ -13,7 +13,8 @@
         45.761419617111414,
         60.389274628522706
       ],
-      "max_tokens": 16384
+      "max_tokens": 16384,
+      "pending": 31
     },
     "refused": 0,
     "truncated": 55,
@@ -33,7 +34,8 @@
         43.51167775562642,
         58.16578431136471
       ],
-      "max_tokens": 16384
+      "max_tokens": 16384,
+      "pending": 0
     },
     "refused": 0,
     "truncated": 42,
@@ -53,7 +55,8 @@
         47.45861462894717,
         62.04700375066923
       ],
-      "max_tokens": 16384
+      "max_tokens": 16384,
+      "pending": 0
     },
     "refused": 0,
     "truncated": 43,

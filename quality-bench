@@ -693,6 +693,7 @@ def wilson(successes, total, z=1.96):
 
 
 def _score(rows):
+    budget = max((r.get("max_tokens") or 0 for r in rows), default=0) or None
     correct = sum(1 for r in rows if r["correct"])
     low, high = wilson(correct, len(rows))
     return {
@@ -703,7 +704,18 @@ def _score(rows):
         # The largest budget any row was answered under. A run resumed under a
         # raised budget has retried every row truncated below it, so this is
         # the budget the score as a whole reflects.
-        "max_tokens": max((r.get("max_tokens") or 0 for r in rows), default=0) or None,
+        "max_tokens": budget,
+        # ...unless it has not finished retrying them. Rows still truncated
+        # under a smaller budget will be regenerated, and each one can only
+        # turn from wrong to right, so a score with pending rows is a lower
+        # bound rather than a result. A nightly window takes days to work
+        # through them, and in the meantime this is the difference between a
+        # partial score and one that looks final.
+        "pending": sum(
+            1 for r in rows
+            if r.get("finish_reason") == "length"
+            and (r.get("max_tokens") or 0) < budget
+        ),
     }
 
 
@@ -753,6 +765,11 @@ def summarise(rows):
 
 
 def print_summary(summaries):
+    pending = {
+        f"{s['model']} {task}": s[task]["pending"]
+        for s in summaries for task in TASKS
+        if task in s and s[task].get("pending")
+    }
     header = (
         f"{'model':<34} {'mode':<9} {'gsm8k':>7} {'mmlu':>7} {'code':>7} "
         f"{'composite':>20} {'ref':>4} {'trunc':>6}"
@@ -760,8 +777,12 @@ def print_summary(summaries):
     print(header)
     print("-" * len(header))
     for s in summaries:
+        # A trailing * marks a score whose run has not finished retrying the
+        # answers truncated under a smaller budget.
         cells = [
-            f"{s[task]['pct']:.1f}%" if task in s else "-" for task in TASKS
+            f"{s[task]['pct']:.1f}%" + ("*" if s[task].get("pending") else "")
+            if task in s else "-"
+            for task in TASKS
         ]
         comp = s.get("composite")
         composite = (
@@ -772,6 +793,8 @@ def print_summary(summaries):
             f"{s['model']:<34} {s['mode']:<9} {cells[0]:>7} {cells[1]:>7} {cells[2]:>7} "
             f"{composite:>20} {s['refused']:>4} {s['truncated']:>6}"
         )
+    for label, n in pending.items():
+        print(f"  * {label}: {n} answers still to regenerate under the raised budget")
 
 
 ################################################################################
