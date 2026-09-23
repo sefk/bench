@@ -1,5 +1,25 @@
 [
   {
+    "model": "qwen/qwen3.6-27b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.6-27b@4bit",
+    "mode": "no-think",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 93,
+      "pct": 53.142857142857146,
+      "ci95": [
+        45.761419617111414,
+        60.389274628522706
+      ],
+      "max_tokens": 16384
+    },
+    "refused": 0,
+    "truncated": 55,
+    "median_latency_s": 223.695
+  },
+  {
     "model": "qwen/qwen3.6-35b-a3b@4bit",
     "backend": "lmstudio",
     "target": "qwen/qwen3.6-35b-a3b@4bit",
@@ -27,11 +47,11 @@
     "n": 175,
     "code": {
       "n": 175,
-      "correct": 95,
-      "pct": 54.285714285714285,
+      "correct": 96,
+      "pct": 54.857142857142854,
       "ci95": [
-        46.891937006133624,
-        61.49537332882198
+        47.45861462894717,
+        62.04700375066923
       ],
       "max_tokens": 16384
     },
