@@ -76,61 +76,67 @@ graded 0–22% correct, untruncated ones 98%. Raising the cap to 1,536 and
 re-grading only the truncated items moved `3.8-27b@4bit` by 4.8 points and
 collapsed the apparent spread. The metric had been ranking verbosity.
 
-### Coding: the token budget is the finding
+### Coding: the token budget is the finding, and the dense build wins
 
 175 LiveCodeBench problems (AtCoder and LeetCode, Jan–Apr 2025), graded by
 running the generated program against ~40 hidden tests each; a problem scores
 only if every test passes. Reasoning mode off, as everywhere else here.
 
-| Variant | 4k budget | 16k budget | Cut off at 4k |
-|---|---|---|---|
-| `35b-a3b@8bit` (MoE) | 38.3% | **54.3%** | 92 / 175 |
-| `35b-a3b@4bit` (MoE) | 36.0% | **50.9%** | 88 / 175 |
-| `3.6-27b@4bit` | 41.7% | — | 94 / 175 |
-| `3.8-27b@4bit` | 38.3% | — | 84 / 175 |
-| Apple on-device | 16.6% | — | 0 / 175 |
+| Variant | 4k budget | 16k budget | Median answer @16k | Median wait |
+|---|---|---|---|---|
+| `3.6-27b@4bit` (dense) | 41.7% | **60.6%** | 5,172 tok | 281 s |
+| `35b-a3b@8bit` (MoE) | 38.9% | 54.9% | 4,837 tok | 98 s |
+| `3.8-27b@4bit` (dense) | 38.3% | 53.1% | 3,515 tok | 191 s |
+| `35b-a3b@4bit` (MoE) | 36.0% | 50.9% | 4,106 tok | **63 s** |
+| Apple on-device | 16.6% | — | — | — |
 
-**At 4,096 tokens the benchmark is mostly measuring answer length.** Half of
-every Qwen build's answers hit the cap before a line of code appeared, and at
-that budget no two Qwen variants can be told apart — the five scores span 5.7
-points with intervals ±7. The cut-offs are not degenerate loops: 1 of 358
-repeats itself. The model is working the problem through in prose and runs
-out of room.
+**At 4,096 tokens the benchmark mostly measures answer length.** Half of every
+Qwen build's answers hit the cap before a line of code appeared, and at that
+budget no two Qwen variants can be told apart. The cut-offs are not degenerate
+loops: 1 of 358 repeats itself. The model works the problem through in prose
+and runs out of room.
 
 Re-running only the cut-off items under a 16k cap — equivalent to a full 16k
-run at temperature 0 — moves the MoE builds up **15 and 16 points**. A budget
-change is worth four times the spread between the variants.
+run at temperature 0 — is worth **+14.9 to +18.9 points** to every build. A
+budget change is worth three times the spread between the variants, and it is
+the single largest effect measured anywhere in this report.
 
-**But 16k does not settle it either.** Those retried answers came back at a
-median of **15,892 tokens against a 16,384 cap**, and 42 of 88 were still
-truncated. Whatever ceiling is offered on a hard problem, these builds fill it.
-The difficulty split shows where: at 16k the MoE still loses 35 of 80 hard
-problems to truncation, while easy problems never truncate at either budget.
+**16k is still not enough for the hard problems.** Every build still loses
+26–38 of the 80 hard problems to truncation, and the retried MoE answers came
+back at a median of 15,892 tokens against a 16,384 cap. Whatever ceiling these
+builds are given on a hard problem, they fill it. That is a real cost, not an
+artefact: a cut-off 16k answer took a median of 4.4 minutes on the *fastest*
+build here and returned nothing usable.
 
-So the honest reading is that **truncation is a result, not an artefact to
-tune away.** It is also an expensive one: a cut-off 16k answer took a median of
-**4.4 minutes** on the fastest build here (5.6 on the 8-bit) and returned
-nothing usable.
+**`3.6-27b@4bit` is meaningfully better at code — the first architecture
+difference in this report that survives a significance test.** On the same 175
+problems at 16k it wins 27 problems the MoE 4-bit loses and loses only 10 the
+MoE wins (exact paired p=0.0076). The margin is on the hard end: 29 of 80 hard
+problems against the MoE's 19. It also leads `3.8-27b@4bit` 27–14 (p=0.060),
+which agrees in direction with the MMLU regression.
 
-**Quantization again buys nothing.** On the same 175 problems at 16k, the 8-bit
-MoE wins 19 items the 4-bit loses and loses 13 the 4-bit wins — a paired test
-gives p=0.38. At 4k, p=0.45. This matches the MMLU result on a task that is
-far from saturated, which is the stronger version of the claim: 8-bit is not
-being rescued by an easy benchmark.
+Against the *8-bit* MoE the dense lead is 23–13 and not significant (p=0.13),
+so the honest ranking is `3.6-27b@4bit` ahead of the 4-bit MoE, with the 8-bit
+MoE in between.
 
-**The dense 27B is the one suggestive result.** At 4k it beats the MoE 17
-items to 7 (p=0.064) — not significant, but the only comparison here that even
-approaches it, and it agrees in direction with MMLU. Whether it survives a 16k
-budget is unmeasured: the retry costs ~20 h per dense build.
+**Quantization still buys nothing, now on an unsaturated task.** At 16k the
+8-bit MoE wins 20 problems the 4-bit loses and loses 13 (p=0.30). MMLU said
+the same thing at 88% and this says it at 51–55%, where there is plenty of room
+to be wrong in.
 
-**Apple's model is not a coding tool.** 16.6%, and its passes are almost
-entirely easy problems (24 of 43 easy, 5 of 132 medium-and-hard). It never
-truncates, because it does not attempt the long reasoning the Qwen builds do.
+**What it costs to have the better coder.** The dense build's 10-point lead is
+paid for at 281 s per problem against the MoE's 63 s — and grading all 175
+problems took **19.3 GPU-hours on the dense build against 5.4 on the MoE**.
+Per problem solved, the MoE is still roughly 3× cheaper.
+
+**Apple's model is not a coding tool.** 16.6%, almost entirely easy problems
+(24 of 43 easy, 5 of 132 medium-and-hard). It never truncates because it does
+not attempt the long reasoning the Qwen builds do.
 
 Contamination caveat: LiveCodeBench stopped publishing after these problems,
 all of which predate every model measured here, so these numbers are not
 comparable with published LiveCodeBench scores. Between the builds on this
-machine, the comparison is fair — they all faced the same 175 problems.
+machine the comparison is fair — they all faced the same 175 problems.
 
 ### Qwen3.8-27B is a quality regression on this machine
 
@@ -192,6 +198,14 @@ as in decode (memory-bound). Quantization, by contrast, only ever moves decode.
 The 1.5-point quality difference is inside the interval. The 4.9× latency
 difference is not.
 
+**This holds for knowledge work and fails for code.** The quality row above is
+the GSM8K+MMLU composite, where the two are indistinguishable. On
+LiveCodeBench the same dense build beats this MoE by 9.7 points, 27 problems
+to 10 on paired items (p=0.008) — the one place in this report where an
+architecture difference in *quality* survives a significance test. Read this
+table as "architecture beats every other lever on latency, and on quality
+everywhere except code".
+
 ### Power, briefly
 
 Measured 2026-08-03 with `powermetrics`, and unchanged by this round's work.
@@ -231,24 +245,28 @@ cold load, once per model per session.**
 
 ## Practical takeaways
 
-- **`35b-a3b@4bit` is the default, and the case is now much stronger.** It was
-  already the fastest and most energy-efficient; it is also within 1.5 points of
-  the best quality measured, which is inside the noise. Nothing on this machine
-  beats it on the combination.
+- **`35b-a3b@4bit` is the default for everything except code.** It is the
+  fastest and most energy-efficient, and on GSM8K+MMLU it is within 1.5 points
+  of the best score measured, inside the noise.
+- **Reach for `3.6-27b@4bit` when the task is code.** It solves 60.6% of
+  LiveCodeBench against the MoE's 50.9% — 27 problems to 10 head-to-head,
+  p=0.008 — and that gap is real in a way the composite's 1.5 points never
+  was. It costs 4.5× the wait per problem (281 s against 63 s), so the MoE
+  remains roughly 3× cheaper per problem *solved*; pick the dense build when
+  getting the answer matters more than getting it soon.
 - **Do not use 8-bit.** It buys +1.07 MMLU points at 0.79σ — indistinguishable
   from zero — and costs 1.26–1.87× decode speed plus double the footprint. The
   earlier "8-bit is nearly free in energy terms" is true and no longer relevant:
   it is free in energy and expensive in time, for nothing.
 - **Prefer 3.6 over 3.8 at 27B.** Same speed, 4.4–7.4 points worse on MMLU.
-- **Give code a big budget, and expect to pay for it.** Doubling the cap from
-  4k to 16k is worth ~15 points on LiveCodeBench — four times the spread
-  between variants. Even at 16k these builds fill whatever ceiling they are
-  given on hard problems, so budget for long answers or accept that hard
-  problems return nothing.
-- **The dense builds are hard to justify.** `3.6-27b@4bit` has the best quality
-  score on the board, but it is a 1.5-point edge inside the interval, paid for
-  with 6.4× the time to first token. Reach for it only when that 1.5 points is
-  worth a minute of waiting.
+- **Give code a big budget, and expect to pay for it.** Going from a 4k to a
+  16k cap is worth +14.9 to +18.9 points on LiveCodeBench — three times the
+  spread between variants, and the largest single effect in this report. Even
+  at 16k these builds fill whatever ceiling they are given on hard problems, so
+  budget for long answers or accept that hard problems return nothing.
+- **Outside code, the dense builds are still hard to justify.** On
+  GSM8K+MMLU `3.6-27b@4bit` leads by 1.5 points, inside the interval, paid for
+  with 6.4× the time to first token.
 - **Apple's `fm` is worth reaching for on short prompts.** Nothing to load,
   nothing resident, first token in under a second on a short prompt. Not for
   knowledge-heavy work, and useless past ~3k tokens of context.
@@ -424,18 +442,31 @@ correctness.
 
 Added a third `quality-bench` task: 175 LiveCodeBench v6 problems, graded by
 running the program against every hidden test under `sandbox-exec` (no
-network, writes confined to a scratch dir, 6 s per test). Ran all five
-variants at a 4,096-token budget, then re-ran the MoE pair's truncated answers
-at 16,384. Raw data in `results/2026-09-17/`.
+network, writes confined to a scratch dir, 6 s per test). All five variants at
+a 4,096-token budget, then every Qwen build's truncated answers re-run at
+16,384 — the dense pair over nine nightly midnight-06:00 windows, finishing
+2026-09-26. Raw data in `results/2026-09-17/`.
 
-Learned that at 4k the score is mostly answer length — half the answers are cut
-off before any code appears, and no two Qwen builds separate. At 16k the MoE
-builds gain 15–16 points, and *still* fill the budget: retried answers land at
-a median 15,892 tokens of a 16,384 cap. Quantization again shows nothing
-(paired p=0.38 at 16k), this time on a task nowhere near saturation. The dense
-27B leads the MoE 17–7 at 4k (p=0.064), the only comparison here that comes
-close to significance. Apple's model manages 16.6%, almost all on easy
-problems.
+Learned that the token budget dominates everything: at 4k half the answers are
+cut off before any code appears and no two Qwen builds separate, and moving to
+16k is worth +14.9 to +18.9 points to every build — three times the spread
+between the builds themselves. Even at 16k the hard problems fill the cap.
+
+With that confound removed, `3.6-27b@4bit` is a genuinely better coder than the
+4-bit MoE: 60.6% against 50.9%, 27 paired wins to 10, p=0.008. That is the only
+architecture difference in *quality* here that reaches significance, and it
+qualifies "architecture beats every other lever" and the blanket MoE
+recommendation — both of which were drawn from knowledge tasks. Quantization
+again shows nothing (p=0.30), this time on a task at 51–55% rather than 88%.
+Apple's model manages 16.6%, almost all easy problems.
+
+A Codex review caught three grader defects mid-run: functional answers compared
+with strict equality (a binary search returning 0.9999999999999999 for 1.0
+scored wrong — 3 verdicts flipped on regrade), a flat 1e-6 tolerance where one
+AtCoder problem demands 1e-8, and an RLIMIT_CPU that covered a whole 40-test
+suite rather than one test. Stored answers are kept whole precisely so
+`--regrade` can re-judge without regenerating; it took 12 minutes.
 
 The dashboard grew three tabs (quality vs speed, speed by dimension, the
-table), with every selection kept in the URL.
+table), with every selection kept in the URL, and marks a score whose
+raised-budget run is still in flight as partial rather than final.

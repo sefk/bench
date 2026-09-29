@@ -7,18 +7,18 @@
     "n": 175,
     "code": {
       "n": 175,
-      "correct": 93,
-      "pct": 53.142857142857146,
+      "correct": 106,
+      "pct": 60.57142857142857,
       "ci95": [
-        45.761419617111414,
-        60.389274628522706
+        53.178306840914466,
+        67.51039198530941
       ],
       "max_tokens": 16384,
-      "pending": 31
+      "pending": 0
     },
     "refused": 0,
-    "truncated": 55,
-    "median_latency_s": 223.695
+    "truncated": 37,
+    "median_latency_s": 280.99
   },
   {
     "model": "qwen/qwen3.6-35b-a3b@4bit",
@@ -61,5 +61,26 @@
     "refused": 0,
     "truncated": 43,
     "median_latency_s": 97.867
+  },
+  {
+    "model": "qwen/qwen3.8-27b@4bit",
+    "backend": "lmstudio",
+    "target": "qwen/qwen3.8-27b@4bit",
+    "mode": "no-think",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 93,
+      "pct": 53.142857142857146,
+      "ci95": [
+        45.761419617111414,
+        60.389274628522706
+      ],
+      "max_tokens": 16384,
+      "pending": 0
+    },
+    "refused": 0,
+    "truncated": 27,
+    "median_latency_s": 190.975
   }
 ]
