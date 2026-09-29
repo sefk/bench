@@ -357,6 +357,11 @@ tokens fine, 4,376 nothing), and it **ignores `max_tokens`**.
   figure is also near zero, so it does not discriminate. The matrix numbers were
   taken under controlled conditions and match historical measurements, but this
   is a known unexplained instability on this machine.
+- **The 8-bit dense builds were never graded on code**, at either budget. They
+  are the slowest variants here, ~7 h per pass at 4k and more at 16k, and
+  quantization has now shown no quality effect three times — MMLU (0.79σ),
+  code at 4k (p=0.45) and code at 16k (p=0.30). The coding ranking is
+  therefore over four builds, not six.
 - **Power is SoC package only** (CPU + GPU + ANE) — excludes DRAM, PSU losses,
   and the rest of the machine. Treat it as a floor on wall draw.
 - `qwen3.8-27b@q4_k_m` (llama.cpp GGUF) is **no longer on disk** and could not
