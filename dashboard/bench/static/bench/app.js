@@ -32,12 +32,20 @@
     const TABLE_COLUMNS = [
         "date", "variant", "version", "arch", "quant", "precision", "runtime", "size",
         "prompt_tokens", "completion_tokens", "gen_tps", "prefill_tps",
-        "ttft", "total_s", "quality_pct", "quality_gsm8k", "quality_mmlu", "quality_code", "quality_code_16k",
+        "ttft", "total_s", "quality_mode", "quality_pct", "quality_gsm8k", "quality_mmlu", "quality_code", "quality_code_16k",
         "ttft_spread", "watts", "tokens_per_wh",
     ];
     const TEXT_COLUMNS = new Set([
-        "date", "variant", "version", "arch", "quant", "precision", "runtime", "size",
+        "date", "variant", "version", "arch", "quant", "precision", "runtime", "size", "quality_mode",
     ]);
+
+    // A quality score from anything but no-think was measured differently --
+    // gpt-oss cannot stop reasoning and runs at low effort -- so it is named
+    // wherever the score appears.
+    function modeNote(row) {
+        const mode = row.quality_mode;
+        return mode && mode !== "no-think" ? ` (${mode.replace("effort-", "")} reasoning)` : "";
+    }
 
     // Everything a viewer can select, with its default. All of it round-trips
     // through the URL, so any view can be bookmarked or linked.
@@ -385,7 +393,7 @@
                 // raised budget can only go up; drawn hollow and labelled so
                 // it is not read as a finished measurement.
                 pending: row[ci.pending] || 0,
-                label: shortLabel(row) + (row[ci.pending] ? " (partial)" : ""),
+                label: shortLabel(row) + modeNote(row) + (row[ci.pending] ? " (partial)" : ""),
                 group: archGroup(row),
                 rows: current,
             });
@@ -580,6 +588,9 @@
                                     ...(p.n ? [`quality items: ${p.n}`] : []),
                                     ...(p.pending
                                         ? [`partial: ${p.pending} answers still to regenerate`]
+                                        : []),
+                                    ...(modeNote(r)
+                                        ? [`mode: ${r.quality_mode} -- the model cannot turn reasoning off; not the same measurement as no-think`]
                                         : []),
                                     `date: ${r.date}`,
                                 ];

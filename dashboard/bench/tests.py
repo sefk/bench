@@ -61,6 +61,20 @@ class DeriveDimensionsTests(SimpleTestCase):
         self.assertEqual(d["params"], "undisclosed")
         self.assertEqual(d["precision"], "undisclosed")
 
+    def test_gpt_oss_facts_override_the_name(self):
+        """gpt-oss-20b is MoE with no `-a3b` suffix; its card says 21B total,
+        3.6B active. Name parsing alone would call it a dense 20B."""
+        d = derive_dimensions("openai/gpt-oss-20b@mxfp4")
+        self.assertEqual(d["family"], "openai")
+        self.assertEqual(d["arch"], "moe")
+        self.assertEqual(d["params"], "21b")
+        self.assertEqual(d["active"], "3.6b")
+        self.assertEqual(d["version"], "n/a")
+        self.assertEqual(d["quant"], "mxfp4")
+        self.assertEqual(d["precision"], "4-bit")
+        self.assertEqual(d["runtime"], "mlx")
+        self.assertEqual(d["variant"], "gpt-oss-20b@mxfp4")
+
     def test_no_quant(self):
         d = derive_dimensions("foo/bar")
         self.assertEqual(d["family"], "foo")
@@ -245,6 +259,35 @@ class QualityJoinTests(SimpleTestCase):
     def test_think_mode_scores_are_excluded(self):
         scores = load_quality(self.results_dir)
         self.assertAlmostEqual(scores["qwen/qwen3.6-27b@4bit"]["quality_pct"], 73.3)
+        self.assertEqual(scores["qwen/qwen3.6-27b@4bit"]["quality_mode"], "no-think")
+
+    def _write_quality(self, name, entries):
+        (self.results_dir / "2026-09-14" / name).write_text(json.dumps(entries))
+
+    def test_effort_low_is_joined_and_says_so(self):
+        """gpt-oss cannot stop reasoning; its low-effort score is shown, with
+        its mode, rather than dropped."""
+        self._write_quality("quality-gptoss.json", [{
+            "model": "openai/gpt-oss-20b@mxfp4", "backend": "lmstudio",
+            "target": "openai/gpt-oss-20b@mxfp4", "mode": "effort-low",
+            "composite": {"pct": 80.0, "ci95": [77.0, 82.7], "n": 750},
+        }])
+        scores = load_quality(self.results_dir)["openai/gpt-oss-20b@mxfp4"]
+        self.assertAlmostEqual(scores["quality_pct"], 80.0)
+        self.assertEqual(scores["quality_mode"], "effort-low")
+
+    def test_no_think_beats_effort_low_without_mixing(self):
+        """A model scored in both modes shows its no-think scores only -- not a
+        no-think composite beside an effort-low code score."""
+        self._write_quality("quality-code.json", [{
+            "model": "qwen/qwen3.6-27b@4bit", "backend": "lmstudio",
+            "target": "qwen/qwen3.6-27b@4bit", "mode": "effort-low",
+            "code": {"pct": 90.0, "ci95": [85.0, 93.0], "n": 175},
+        }])
+        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        self.assertEqual(scores["quality_mode"], "no-think")
+        self.assertAlmostEqual(scores["quality_pct"], 73.3)
+        self.assertNotIn("quality_code", scores)
 
     def test_code_scores_merge_without_blanking_the_composite(self):
         """quality-code.json carries only the code task; joining it must add

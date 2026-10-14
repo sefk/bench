@@ -27,6 +27,20 @@ import re
 import sys
 from pathlib import Path
 
+HERE = Path(__file__).resolve().parent
+
+# Attributes a model id cannot carry (gpt-oss-20b is MoE without an `-a3b`
+# suffix). Shared with the dashboard's loader.
+MODEL_FACTS = {
+    k: v
+    for k, v in json.loads((HERE / "model-facts.json").read_text()).items()
+    if not k.startswith("_")
+}
+
+# As in the dashboard: no-think wins, and effort-low -- gpt-oss's nearest
+# equivalent, since it cannot stop reasoning -- is drawn but labelled.
+JOINED_MODES = ("no-think", "effort-low")
+
 W, H = 880, 580
 PAD = {"left": 78, "right": 26, "top": 76, "bottom": 66}
 PLOT_W = W - PAD["left"] - PAD["right"]
@@ -59,9 +73,14 @@ def load(results_dir, size, quality_name="quality.json"):
     if not qpath.exists():
         sys.exit(f"no quality summary at {qpath}")
     for entry in json.loads(qpath.read_text()):
-        if entry.get("mode", "no-think") != "no-think":
+        mode = entry.get("mode", "no-think")
+        if mode not in JOINED_MODES:
             continue
-        quality[entry.get("target") or entry["model"]] = entry
+        target = entry.get("target") or entry["model"]
+        held = quality.get(target)
+        if held and JOINED_MODES.index(held.get("mode", "no-think")) < JOINED_MODES.index(mode):
+            continue
+        quality[target] = entry
 
     points = []
     for path in sorted(results_dir.glob("*.json")):
@@ -84,7 +103,7 @@ def load(results_dir, size, quality_name="quality.json"):
             points.append(
                 {
                     "model": model,
-                    "label": short_label(model),
+                    "label": short_label(model) + mode_note(entry.get("mode")),
                     "arch": arch_of(model),
                     "tps": row["gen_tps"],
                     "quality": composite["pct"],
@@ -103,7 +122,14 @@ def arch_of(model):
     """MoE builds carry an active-parameter suffix, e.g. `-a3b` in `35b-a3b`."""
     if model.startswith("fm:"):
         return "apple"
+    facts = MODEL_FACTS.get(model.split("@", 1)[0], {})
+    if "arch" in facts:
+        return facts["arch"]
     return "moe" if re.search(r"-a\d+b(?:@|$)", model) else "dense"
+
+
+def mode_note(mode):
+    return f" ({mode.removeprefix('effort-')} reasoning)" if mode and mode != "no-think" else ""
 
 
 def short_label(model):

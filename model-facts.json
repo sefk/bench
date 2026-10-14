@@ -1,0 +1,10 @@
+{
+  "_about": "Model attributes the id cannot carry, from each model's card. Keyed by base id (no @variant). Read by dashboard/bench/loader.py and plot-quality-speed; anything not listed is parsed from its id (e.g. qwen3.6-35b-a3b -> MoE, 35b total, 3b active).",
+  "openai/gpt-oss-20b": {
+    "arch": "moe",
+    "params": "21b",
+    "active": "3.6b",
+    "version": "n/a",
+    "source": "https://huggingface.co/openai/gpt-oss-20b"
+  }
+}

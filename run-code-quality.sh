@@ -38,12 +38,14 @@ SUMMARY="${OUT%.jsonl}.json"
 if [ $# -gt 0 ]; then
   VARIANTS=("$@")
 else
-  # MoE pair first (the quantization question, fast), then the 4-bit dense
-  # pair (MoE vs dense, and 3.6 vs 3.8), then Apple's model. The 8-bit dense
-  # builds are ~7 h each and are left to be asked for by name.
+  # MoE pair first (the quantization question, fast), then gpt-oss (another
+  # MoE, run at low reasoning effort since it cannot stop reasoning), then the
+  # 4-bit dense pair (MoE vs dense, and 3.6 vs 3.8), then Apple's model. The
+  # 8-bit dense builds are ~7 h each and are left to be asked for by name.
   VARIANTS=(
     "qwen/qwen3.6-35b-a3b@4bit"
     "qwen/qwen3.6-35b-a3b@8bit"
+    "openai/gpt-oss-20b@mxfp4"
     "qwen/qwen3.6-27b@4bit"
     "qwen/qwen3.8-27b@4bit"
     "fm:system"

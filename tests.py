@@ -348,11 +348,65 @@ class ResumeTests(unittest.TestCase):
             self.assertTrue(rows[0]["correct"])
 
 
+class ReasoningModeTests(unittest.TestCase):
+    def test_qwen_defaults_to_no_think(self):
+        mode, budgets = quality.resolve_mode("qwen/qwen3.6-27b@4bit")
+        self.assertEqual(mode, "no-think")
+        self.assertEqual(budgets["mmlu"], 8)
+
+    def test_a_model_that_always_reasons_runs_at_low_effort(self):
+        mode, budgets = quality.resolve_mode("openai/gpt-oss-20b@mxfp4")
+        self.assertEqual(mode, "effort-low")
+        # It reasons before the letter, so MMLU's 8 tokens would truncate all.
+        self.assertGreater(budgets["mmlu"], 8)
+        self.assertEqual(budgets["code"], quality.MAX_TOKENS["code"])
+
+    def test_explicit_effort_and_think(self):
+        self.assertEqual(
+            quality.resolve_mode("openai/gpt-oss-20b@mxfp4", effort="high")[0],
+            "effort-high",
+        )
+        self.assertEqual(
+            quality.resolve_mode("openai/gpt-oss-20b@mxfp4", think=True)[0], "think"
+        )
+
+    def _payload_for(self, mode):
+        sent = {}
+
+        def fake_http(url, payload, timeout=3600):
+            sent.update(payload)
+            return json.dumps({
+                "model": payload["model"],
+                "choices": [{"message": {"content": "B"}, "finish_reason": "stop"}],
+                "usage": {},
+            })
+
+        real = quality.http_json
+        quality.http_json = fake_http
+        try:
+            quality.ask_lmstudio("m", "q", 64, mode)
+        finally:
+            quality.http_json = real
+        return sent
+
+    def test_effort_mode_sends_reasoning_effort_and_no_prefill(self):
+        sent = self._payload_for("effort-low")
+        self.assertEqual(sent["reasoning_effort"], "low")
+        self.assertEqual([m["role"] for m in sent["messages"]], ["user"])
+
+    def test_no_think_sends_the_prefill_only(self):
+        sent = self._payload_for("no-think")
+        self.assertNotIn("reasoning_effort", sent)
+        self.assertEqual(sent["messages"][-1]["content"], quality.NO_THINK_PREFILL)
+
+
 class PlotTests(unittest.TestCase):
     def test_arch_detection(self):
         self.assertEqual(plot.arch_of("qwen/qwen3.6-35b-a3b@4bit"), "moe")
         self.assertEqual(plot.arch_of("qwen/qwen3.6-27b@8bit"), "dense")
         self.assertEqual(plot.arch_of("fm:system"), "apple")
+        # MoE without the suffix, known from model-facts.json.
+        self.assertEqual(plot.arch_of("openai/gpt-oss-20b@mxfp4"), "moe")
 
     def test_bounds_land_on_ticks(self):
         lo, hi, step = plot.nice_bounds(50.9, 81.9)

@@ -49,6 +49,14 @@ Apple's non-reasoning `fm` model meaningless. Scores from `--think` and
 `--no-think` runs are not comparable to each other; the mode is recorded in
 the output.
 
+gpt-oss cannot switch reasoning off. It speaks the harmony format, not Qwen's,
+so the empty think block means nothing to it, and the least it will do is
+`reasoning_effort: low` -- which LM Studio honours (4 reasoning tokens on a
+trivial item at low, 78 at high). Models listed in ALWAYS_REASONS therefore
+default to that instead, recorded as mode `effort-low`. `--reasoning-effort`
+picks another level for them. It is the closest thing they have to
+`no-think`, not the same thing, so the mode keeps the two apart.
+
 Determinism: temperature 0 throughout. Results are still not bit-reproducible
 (Metal kernels reassociate floating point), but run-to-run drift is small.
 
@@ -113,6 +121,15 @@ NO_THINK_PREFILL = "<think>\n\n</think>\n\n"
 # repeats GSM8K's mistake of scoring verbosity. `fm serve` ignores the budget.
 MAX_TOKENS = {"mmlu": 8, "gsm8k": 1536, "code": 4096}
 MAX_TOKENS_THINK = {"mmlu": 1024, "gsm8k": 2048, "code": 8192}
+# A model that always reasons spends tokens before the letter even on a trivial
+# MMLU item (15 on gpt-oss at low effort), so MMLU's 8 would truncate every
+# answer. GSM8K and code keep the no-think budgets: Qwen's prose working comes
+# out of the same budget, so those stay like for like.
+MAX_TOKENS_EFFORT = {"mmlu": 1024, "gsm8k": 1536, "code": 4096}
+
+# Base model ids (no @variant) that cannot turn reasoning off, and the effort
+# they run at by default. See the module docstring.
+ALWAYS_REASONS = {"openai/gpt-oss-20b": "low"}
 
 # Tasks that make up the composite score. Code is reported on its own: folding
 # it in would move every composite number recorded before it existed.
@@ -491,9 +508,9 @@ LMSTUDIO_RETRIES = 4
 LMSTUDIO_BACKOFF = 15
 
 
-def ask_lmstudio(model, prompt, max_tokens, think):
+def ask_lmstudio(model, prompt, max_tokens, mode):
     messages = [{"role": "user", "content": prompt}]
-    if not think:
+    if mode == "no-think":
         messages.append({"role": "assistant", "content": NO_THINK_PREFILL})
     payload = {
         "model": model,
@@ -502,6 +519,8 @@ def ask_lmstudio(model, prompt, max_tokens, think):
         "max_tokens": max_tokens,
         "stream": False,
     }
+    if mode.startswith("effort-"):
+        payload["reasoning_effort"] = mode.removeprefix("effort-")
 
     for attempt in range(LMSTUDIO_RETRIES):
         try:
@@ -543,7 +562,7 @@ def ask_lmstudio(model, prompt, max_tokens, think):
     }
 
 
-def ask_fm(model, prompt, max_tokens, think):
+def ask_fm(model, prompt, max_tokens, mode):
     """`fm serve` only ever streams, and reports no token usage."""
     payload = {
         "model": model,
@@ -862,6 +881,22 @@ def _budget_was_raised(row, budgets):
     return recorded < budgets.get(row.get("task"), 0)
 
 
+def resolve_mode(model, think=False, effort=None):
+    """The reasoning mode a target runs in, and its token budgets.
+
+    A model in ALWAYS_REASONS never gets the no-think prefill -- it would not
+    understand it -- and runs at its listed effort unless one is given.
+    `--reasoning-effort` on any other model is honoured too, since LM Studio
+    passes it to whatever template accepts it.
+    """
+    if think:
+        return "think", dict(MAX_TOKENS_THINK)
+    effort = effort or ALWAYS_REASONS.get(model.split("@", 1)[0])
+    if effort:
+        return f"effort-{effort}", dict(MAX_TOKENS_EFFORT)
+    return "no-think", dict(MAX_TOKENS)
+
+
 def regrade(path, items_path):
     """Re-judge stored code answers, rewriting the file in place.
 
@@ -916,10 +951,17 @@ def main():
         help="override the token budget for --task; rows truncated under a "
         "smaller budget are retried on resume",
     )
-    ap.add_argument(
+    reasoning = ap.add_mutually_exclusive_group()
+    reasoning.add_argument(
         "--think",
         action="store_true",
         help="leave the model's reasoning mode on (much slower; see docstring)",
+    )
+    reasoning.add_argument(
+        "--reasoning-effort",
+        choices=["low", "medium", "high"],
+        help="send this reasoning_effort instead of the no-think prefill; "
+        "the default for models that cannot stop reasoning is low",
     )
     ap.add_argument("--score", metavar="FILE", help="summarise an existing result file")
     ap.add_argument("--json", action="store_true", help="summary as JSON")
@@ -957,20 +999,21 @@ def main():
                 kept.append(item)
         items = kept
 
-    mode = "think" if args.think else "no-think"
-    budgets = dict(MAX_TOKENS_THINK if args.think else MAX_TOKENS)
-    if args.max_tokens:
-        if not args.task:
-            ap.error("--max-tokens needs --task")
-        budgets[args.task] = args.max_tokens
+    if args.max_tokens and not args.task:
+        ap.error("--max-tokens needs --task")
     out_path = Path(args.out)
-    done, _ = load_done(out_path, budgets)
 
     try:
         for target in args.targets:
             backend, _, model = target.partition(":")
             if backend not in BACKENDS:
                 sys.exit(f"unknown backend {backend!r} in {target!r}")
+            # Per target: a model that cannot stop reasoning runs in its own
+            # mode, with budgets to match, alongside no-think targets.
+            mode, budgets = resolve_mode(model, args.think, args.reasoning_effort)
+            if args.max_tokens:
+                budgets[args.task] = args.max_tokens
+            done, _ = load_done(out_path, budgets)
             if backend == "fm":
                 ensure_fm_server()
             else:
@@ -991,7 +1034,7 @@ def main():
                     t0 = time.time()
                     try:
                         reply = BACKENDS[backend](
-                            model, prompt, budgets[item["task"]], args.think
+                            model, prompt, budgets[item["task"]], mode
                         )
                         error = None
                     except Exception as exc:  # noqa: BLE001 - recorded, not raised

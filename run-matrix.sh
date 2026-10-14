@@ -62,6 +62,7 @@ fi
 # than silently slow.
 VARIANTS=(
   "fm:system"
+  "openai/gpt-oss-20b@mxfp4"
   "qwen/qwen3.6-27b@4bit"
   "qwen/qwen3.8-27b@4bit"
   "qwen/qwen3.6-35b-a3b@4bit"

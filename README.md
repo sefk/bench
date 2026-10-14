@@ -180,7 +180,18 @@ honour an assistant prefill of an empty `<think></think>` block, which is what
 the default `--no-think` sends. `--think` leaves reasoning on.
 
 **Scores from the two modes are not comparable**, so the mode is recorded on
-every row and the dashboard joins only `no-think` runs.
+every row and the dashboard does not join `think` runs.
+
+gpt-oss cannot switch reasoning off, and the empty think block means nothing
+to its chat format (harmony). The least it does is `reasoning_effort: low`,
+which LM Studio honours — 4 reasoning tokens on a trivial item, against 78 at
+high. Models listed in `ALWAYS_REASONS` in `quality-bench` run that way by
+default, recorded as mode `effort-low`; `--reasoning-effort` picks another
+level. Even at low effort it spends ~15 tokens before an MMLU letter, so
+MMLU's budget is 1024 in that mode; GSM8K and code keep their no-think
+budgets. The dashboard and `plot-quality-speed` show `effort-low` scores
+labelled "(low reasoning)": it is that model's nearest equivalent to
+`no-think`, not the same measurement.
 
 #### Token budgets
 
@@ -369,15 +380,26 @@ model at the same precision, the two differ by ~1.8× on decode. Group by
 llama.cpp cost?", and by `quant` for the raw build id. Collapsing the two into
 one series would hide the largest confound in this dataset.
 
+Some attributes cannot be read off a model id. gpt-oss-20b is MoE (21B total,
+3.6B active, per its card) with no `-a3b` suffix, so name parsing alone would
+call it a dense 20B. [`model-facts.json`][facts] holds those attributes per
+base id, taken from the model card, and overrides the parsed values; both the
+dashboard and `plot-quality-speed` read it. Add an entry when a new model's
+name does not say what it is. `mxfp4` (gpt-oss's MoE weight format) counts as
+4-bit precision.
+
 Quality scores are loaded separately from `results/<date>/quality*.json` and
 joined onto the throughput rows by model id, which is why `quality-bench`
-records a `target` field matching `lmstudio-bench`'s `model`. Only `no-think`
-runs are joined.
+records a `target` field matching `lmstudio-bench`'s `model`. `no-think` runs
+are joined, and `effort-low` runs for models that cannot stop reasoning; each
+row's `quality_mode` says which, and a model scored in both shows only its
+`no-think` scores.
 
 Results are cached in memory and re-read automatically when a result file's
 mtime changes, so new runs show up on refresh without restarting the server.
 
 [django]: https://www.djangoproject.com
+[facts]: model-facts.json
 [lcb]: https://livecodebench.github.io
 [lms]: https://lmstudio.ai
 [report]: REPORT.md

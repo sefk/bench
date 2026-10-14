@@ -39,7 +39,29 @@ _PRECISION = {
     "q5_k_m": "5-bit",
     "q6_k": "6-bit",
     "q8_0": "8-bit",
+    # gpt-oss ships its MoE expert weights in MXFP4 (4-bit floats with a shared
+    # scale per block); attention and embeddings stay at bf16. The experts are
+    # nearly all the weight, so 4-bit is the honest nominal width.
+    "mxfp4": "4-bit",
 }
+
+# What a model id cannot say -- gpt-oss-20b is MoE with no `-a3b`-style suffix,
+# and its card gives 21B total, 3.6B active. Lives at the repo root so
+# `plot-quality-speed` reads the same facts.
+MODEL_FACTS_PATH = Path(__file__).resolve().parents[2] / "model-facts.json"
+
+
+def _load_model_facts(path: Path = MODEL_FACTS_PATH) -> dict[str, dict]:
+    try:
+        with path.open() as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {k: v for k, v in data.items() if not k.startswith("_")}
+
+
+MODEL_FACTS = _load_model_facts()
+_FACT_FIELDS = ("arch", "params", "active", "version")
 
 
 def derive_dimensions(model: str) -> dict[str, str]:
@@ -103,7 +125,7 @@ def derive_dimensions(model: str) -> dict[str, str]:
 
     variant = f"{base}@{quant}" if quant != "unknown" else base
 
-    return {
+    dims = {
         "family": family,
         "base": base,
         "version": version,
@@ -115,6 +137,9 @@ def derive_dimensions(model: str) -> dict[str, str]:
         "runtime": runtime,
         "variant": variant,
     }
+    facts = MODEL_FACTS.get(f"{family}/{base}", {})
+    dims.update({k: facts[k] for k in _FACT_FIELDS if k in facts})
+    return dims
 
 
 # Quality summaries are written alongside the throughput results but have a
@@ -156,19 +181,28 @@ def _quality_field(task: str, max_tokens: int | None) -> str:
     return f"quality_{task}"
 
 
+# Modes that are joined, best first. `no-think` is the baseline. `effort-low`
+# is the least reasoning a model that cannot switch it off will do (gpt-oss),
+# so it is that model's nearest equivalent -- shown, but marked with
+# `quality_mode` so it is never read as the same measurement. A full `think`
+# run is never joined.
+JOINED_MODES = ("no-think", "effort-low")
+
+
 def load_quality(results_dir: Path) -> dict[str, dict]:
     """Map target id -> quality scores, from `quality*.json` summary files.
 
-    Only `no-think` runs are joined. Scores from a reasoning-mode run are not
-    comparable with them -- the model is doing a different amount of work per
-    item -- so mixing the two into one lookup would silently compare across
-    modes. A later date wins, so a re-run supersedes an older score.
+    Only the modes in JOINED_MODES are joined, and a target's no-think scores
+    win over any other mode it was also run in. Scores from a reasoning-mode
+    run are not comparable with no-think ones -- the model is doing a
+    different amount of work per item -- so each row records the mode its
+    scores came from. A later date wins, so a re-run supersedes an older score.
 
     Scores are merged per field, not per entry: the code task is summarised in
     its own file (`quality-code.json`), and its entry for a model must not
     blank out that model's GSM8K/MMLU scores from `quality.json`.
     """
-    scores: dict[str, dict] = {}
+    by_mode: dict[str, dict[str, dict]] = {}
     for path in sorted(_iter_quality_files(results_dir)):
         try:
             with path.open() as fh:
@@ -178,12 +212,13 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
         if not isinstance(data, list):
             continue
         for entry in data:
-            if entry.get("mode", "no-think") != "no-think":
+            mode = entry.get("mode", "no-think")
+            if mode not in JOINED_MODES:
                 continue
             target = entry.get("target") or entry.get("model")
             if not target:
                 continue
-            fields = {}
+            fields = {"quality_mode": mode}
             composite = entry.get("composite")
             if composite:
                 ci = composite.get("ci95") or [None, None]
@@ -208,7 +243,14 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
                 # answers truncated under the smaller one: the score is a
                 # lower bound, and the dashboard says so.
                 fields[f"{name}_pending"] = scored.get("pending") or 0
-            scores.setdefault(target, {}).update(fields)
+            by_mode.setdefault(target, {}).setdefault(mode, {}).update(fields)
+
+    # One mode per target, never a mix: a no-think composite beside an
+    # effort-low code score would be two measurements under one label.
+    scores: dict[str, dict] = {}
+    for target, modes in by_mode.items():
+        best = next(m for m in JOINED_MODES if m in modes)
+        scores[target] = modes[best]
     return scores
 
 
