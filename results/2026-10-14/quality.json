@@ -1,0 +1,45 @@
+[
+  {
+    "model": "openai/gpt-oss-20b@mxfp4",
+    "backend": "lmstudio",
+    "target": "openai/gpt-oss-20b@mxfp4",
+    "mode": "effort-low",
+    "n": 750,
+    "gsm8k": {
+      "n": 250,
+      "correct": 233,
+      "pct": 93.2,
+      "ci95": [
+        89.38099139309014,
+        95.7114442045424
+      ],
+      "max_tokens": 1536,
+      "pending": 0
+    },
+    "mmlu": {
+      "n": 500,
+      "correct": 419,
+      "pct": 83.8,
+      "ci95": [
+        80.3147047944046,
+        86.76987099290632
+      ],
+      "max_tokens": 1024,
+      "pending": 0
+    },
+    "composite": {
+      "n": 750,
+      "correct": 652,
+      "pct": 86.93333333333334,
+      "ci95": [
+        84.33179175646909,
+        89.15844810293903
+      ],
+      "max_tokens": 1536,
+      "pending": 0
+    },
+    "refused": 0,
+    "truncated": 0,
+    "median_latency_s": 1.635
+  }
+]

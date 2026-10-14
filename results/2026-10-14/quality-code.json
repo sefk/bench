@@ -1,0 +1,23 @@
+[
+  {
+    "model": "openai/gpt-oss-20b@mxfp4",
+    "backend": "lmstudio",
+    "target": "openai/gpt-oss-20b@mxfp4",
+    "mode": "effort-low",
+    "n": 175,
+    "code": {
+      "n": 175,
+      "correct": 87,
+      "pct": 49.714285714285715,
+      "ci95": [
+        42.39243305545377,
+        57.048412922215874
+      ],
+      "max_tokens": 4096,
+      "pending": 0
+    },
+    "refused": 0,
+    "truncated": 0,
+    "median_latency_s": 12.915
+  }
+]

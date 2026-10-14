@@ -1,0 +1,36 @@
+
+=== lmstudio:openai/gpt-oss-20b@mxfp4 [effort-low] 750 items (0 already done) ===
+  25/750  100.0% correct  2.78s/item  ~34m left
+  50/750  98.0% correct  2.76s/item  ~32m left
+  75/750  96.0% correct  2.64s/item  ~30m left
+  100/750  96.0% correct  2.58s/item  ~28m left
+  125/750  94.4% correct  2.62s/item  ~27m left
+  150/750  93.3% correct  2.60s/item  ~26m left
+  175/750  92.6% correct  2.64s/item  ~25m left
+  200/750  92.5% correct  2.62s/item  ~24m left
+  225/750  92.4% correct  2.60s/item  ~23m left
+  250/750  93.2% correct  2.56s/item  ~21m left
+  275/750  92.4% correct  2.54s/item  ~20m left
+  300/750  92.0% correct  2.48s/item  ~19m left
+  325/750  92.3% correct  2.46s/item  ~17m left
+  350/750  91.7% correct  2.45s/item  ~16m left
+  375/750  91.5% correct  2.43s/item  ~15m left
+  400/750  90.8% correct  2.39s/item  ~14m left
+  425/750  89.9% correct  2.35s/item  ~13m left
+  450/750  90.0% correct  2.34s/item  ~12m left
+  475/750  89.3% correct  2.33s/item  ~11m left
+  500/750  89.4% correct  2.29s/item  ~10m left
+  525/750  89.3% correct  2.24s/item  ~8m left
+  550/750  89.6% correct  2.28s/item  ~8m left
+  575/750  88.9% correct  2.25s/item  ~7m left
+  600/750  88.7% correct  2.24s/item  ~6m left
+  625/750  88.2% correct  2.22s/item  ~5m left
+  650/750  87.8% correct  2.19s/item  ~4m left
+  675/750  87.9% correct  2.17s/item  ~3m left
+  700/750  87.3% correct  2.16s/item  ~2m left
+  725/750  87.0% correct  2.14s/item  ~1m left
+  750/750  86.9% correct  2.12s/item  ~0m left
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+openai/gpt-oss-20b@mxfp4           effort-low   93.2%   83.8%       -    86.9% [84.3-89.2]    0      0

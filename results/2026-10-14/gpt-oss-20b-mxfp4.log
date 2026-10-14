@@ -1,0 +1,4 @@
+NOT measuring power -- throughput only. Any energy figure derived from these results is an assumption, not a measurement. Pass --power-log FILE to measure it.
+
+openai/gpt-oss-20b@mxfp4
+  warmed up in 5 runs: 74.7 -> 74.7 tok/s
