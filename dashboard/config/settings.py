@@ -7,8 +7,8 @@ SECRET_KEY = "dev-only-not-secret"
 
 DEBUG = True
 
-# Local exploratory tool, no auth -- accept any host so `runserver 0.0.0.0:8000`
-# works from other machines on the LAN.
+# Local exploratory tool, no auth -- accept any host so `honcho start` (0.0.0.0:8101,
+# see the Procfile) works from other machines on the LAN.
 ALLOWED_HOSTS = ["*"]
 
 # Directory that holds results/<date>/<slug>.json files. Defaults to the

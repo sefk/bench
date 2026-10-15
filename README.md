@@ -334,14 +334,18 @@ step. It reads every `results/<date>/*.json` file directly; nothing is
 written back.
 
 ```sh
-cd dashboard && uv sync && uv run manage.py runserver
-cd dashboard && uv run manage.py runserver 0.0.0.0:8000   # reachable from the LAN
-cd dashboard && honcho start                            # via Procfile, on port 8101; PORT=8123 honcho start to change it
+cd dashboard && uv sync && honcho start                 # 0.0.0.0:8101, reachable from the LAN
+cd dashboard && DASHBOARD_PORT=8123 honcho start        # another port
+cd dashboard && uv run manage.py runserver 127.0.0.1:8101   # this machine only
 ```
 
-Then open <http://127.0.0.1:8000/> (or <http://127.0.0.1:8101/> via
-`honcho start`). Run `uv run manage.py test` to run its
-test suite.
+Then open <http://studio.local:8101/> from any machine on the LAN, or
+<http://127.0.0.1:8101/> on this one. The port is set with `DASHBOARD_PORT`,
+not `PORT`: `honcho start` always exports `PORT=5000` to its processes, which
+silently overrides a `${PORT:-...}` default, and on macOS 5000 is the AirPlay
+receiver, so the server exits with "port already in use". Port 8000 is left
+alone because other local servers tend to sit there. Run
+`uv run manage.py test` to run its test suite.
 
 The page has three tabs, all driven by the same filter sidebar:
 
