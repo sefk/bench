@@ -64,41 +64,55 @@ def esc(text):
     )
 
 
-def load(results_dir, size, quality_name="quality.json"):
-    """Join throughput rows at one prompt size onto quality scores."""
-    results_dir = Path(results_dir)
+def load(results_dirs, size, quality_name="quality.json"):
+    """Join throughput rows at one prompt size onto quality scores.
 
-    quality = {}
-    qpath = results_dir / quality_name
-    if not qpath.exists():
-        sys.exit(f"no quality summary at {qpath}")
-    for entry in json.loads(qpath.read_text()):
-        mode = entry.get("mode", "no-think")
-        if mode not in JOINED_MODES:
+    Takes one results directory or several. Runs land in per-date
+    directories, so a model added later (gpt-oss, 2026-10-14) sits apart from
+    the ones it is compared with (Qwen, 2026-09-14). As in the dashboard, a
+    later directory supersedes an earlier one model by model, and a no-think
+    score beats any other joined mode regardless of date.
+    """
+    if isinstance(results_dirs, (str, Path)):
+        results_dirs = [results_dirs]
+    results_dirs = sorted(Path(d) for d in results_dirs)
+
+    by_mode = {}
+    for results_dir in results_dirs:
+        qpath = results_dir / quality_name
+        if not qpath.exists():
             continue
-        target = entry.get("target") or entry["model"]
-        held = quality.get(target)
-        if held and JOINED_MODES.index(held.get("mode", "no-think")) < JOINED_MODES.index(mode):
-            continue
-        quality[target] = entry
+        for entry in json.loads(qpath.read_text()):
+            mode = entry.get("mode", "no-think")
+            if mode in JOINED_MODES and entry.get("composite"):
+                target = entry.get("target") or entry["model"]
+                by_mode.setdefault(target, {})[mode] = entry
+    if not by_mode:
+        sys.exit(f"no {quality_name} in {', '.join(map(str, results_dirs))}")
+    quality = {
+        target: modes[next(m for m in JOINED_MODES if m in modes)]
+        for target, modes in by_mode.items()
+    }
+
+    latest = {}
+    for results_dir in results_dirs:
+        for path in sorted(results_dir.glob("*.json")):
+            if path.name.startswith("quality"):
+                continue
+            try:
+                rows = json.loads(path.read_text())
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if row.get("size") == size and row.get("gen_tps"):
+                    latest[row.get("model", "")] = row
 
     points = []
-    for path in sorted(results_dir.glob("*.json")):
-        if path.name.startswith("quality"):
-            continue
-        try:
-            rows = json.loads(path.read_text())
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            if row.get("size") != size:
-                continue
-            model = row.get("model", "")
-            entry = quality.get(model)
-            if not entry or not row.get("gen_tps"):
-                continue
+    for model, row in sorted(latest.items()):
+        entry = quality.get(model)
+        if entry:
             composite = entry["composite"]
             points.append(
                 {
@@ -354,14 +368,17 @@ def render(points, size, out_path, title=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("results_dir")
+    ap.add_argument(
+        "results_dirs", nargs="+",
+        help="one or more results/<date> directories; later dates supersede earlier",
+    )
     ap.add_argument("-s", "--size", default="4000tok", help="prompt size row to plot")
     ap.add_argument("-q", "--quality", default="quality.json")
     ap.add_argument("-o", "--out", default="quality-vs-speed.svg")
     ap.add_argument("--title")
     args = ap.parse_args()
 
-    points = load(args.results_dir, args.size, args.quality)
+    points = load(args.results_dirs, args.size, args.quality)
     render(points, args.size, args.out, args.title)
 
 

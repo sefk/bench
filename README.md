@@ -226,7 +226,12 @@ as a smaller `n` rather than a quietly depressed score.
 
 ```sh
 ./plot-quality-speed results/2026-09-14 -o results/2026-09-14/quality-vs-speed.svg
+./plot-quality-speed results/2026-09-14 results/2026-10-14 -o results/2026-10-14/quality-vs-speed.svg
 ```
+
+Several results directories can be given; as in the dashboard, a later date
+supersedes an earlier one model by model, so a model benchmarked on its own
+day joins the chart beside the rest.
 
 Decode tok/s on Y, composite quality on X, 95% intervals as horizontal bars.
 Writes a standalone SVG — no plotting library, no build step, and the output

@@ -408,6 +408,30 @@ class PlotTests(unittest.TestCase):
         # MoE without the suffix, known from model-facts.json.
         self.assertEqual(plot.arch_of("openai/gpt-oss-20b@mxfp4"), "moe")
 
+    def test_loads_across_date_directories(self):
+        """A model benchmarked on a later date joins the chart beside the
+        earlier ones, and a re-run supersedes its older numbers."""
+        def entry(model, mode, pct):
+            return {"model": model, "target": model, "mode": mode,
+                    "composite": {"pct": pct, "ci95": [pct - 3, pct + 3]}}
+
+        def speed(model, tps):
+            return [{"model": model, "size": "4000tok", "gen_tps": tps}]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new = Path(tmp, "2026-09-14"), Path(tmp, "2026-10-14")
+            old.mkdir(); new.mkdir()
+            (old / "quality.json").write_text(json.dumps([entry("q/a", "no-think", 88.0)]))
+            (old / "a.json").write_text(json.dumps(speed("q/a", 60.0)))
+            (new / "quality.json").write_text(json.dumps([entry("o/g", "effort-low", 87.0)]))
+            (new / "g.json").write_text(json.dumps(speed("o/g", 78.0)))
+            (new / "a.json").write_text(json.dumps(speed("q/a", 65.0)))
+
+            points = {p["model"]: p for p in plot.load([new, old], "4000tok")}
+            self.assertEqual(set(points), {"q/a", "o/g"})
+            self.assertEqual(points["q/a"]["tps"], 65.0, "later date wins")
+            self.assertTrue(points["o/g"]["label"].endswith("(low reasoning)"))
+
     def test_bounds_land_on_ticks(self):
         lo, hi, step = plot.nice_bounds(50.9, 81.9)
         self.assertAlmostEqual((hi - lo) / step, round((hi - lo) / step))

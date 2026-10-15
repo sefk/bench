@@ -1,8 +1,8 @@
-# Qwen and Apple on-device inference on an M1 Max: quality, latency, cost
+# Qwen, gpt-oss and Apple on-device inference on an M1 Max: quality, latency, cost
 
 Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified memory (~400 GB/s
 theoretical). LM Studio + MLX unless noted; Apple's on-device Foundation Model
-via `fm serve` on macOS 27. Quality is measured on this machine against a fixed
+via `fm serve` on macOS 27; OpenAI's `gpt-oss-20b` from 2026-10-14. Quality is measured on this machine against a fixed
 750-item set, not taken from published scores. See the [Log](#log) for what was
 measured when and where the raw data lives.
 
@@ -13,11 +13,12 @@ measured when and where the raw data lives.
 Quality against decode speed, at a 4,000-token prompt. Up and to the right is
 better; bars are 95% confidence intervals.
 
-![Quality vs decode speed](results/2026-09-14/quality-vs-speed.svg)
+![Quality vs decode speed](results/2026-10-14/quality-vs-speed.svg)
 
 | Variant | Quality | GSM8K | MMLU | Decode | TTFT | Answer¹ |
 |---|---|---|---|---|---|---|
-| `35b-a3b@4bit` (MoE) | 88.1% | 96.8% | 83.8% | **67.3** | **5.7 s** | **13.1 s** |
+| `gpt-oss-20b@mxfp4` (MoE)² | 86.9% | 93.2% | 83.8% | **78.0** | 7.2 s | 13.6 s |
+| `35b-a3b@4bit` (MoE) | 88.1% | 96.8% | 83.8% | 67.3 | **5.7 s** | **13.1 s** |
 | `35b-a3b@8bit` (MoE) | 88.5% | 96.0% | 84.8% | 53.4 | 5.7 s | 15.1 s |
 | Apple on-device | 68.4% | 80.8% | 62.2% | 27.5 | 5.8 s | 24.0 s |
 | `3.6-27b@4bit` | **89.6%** | 96.4% | **86.2%** | 18.5 | 36.6 s | 63.7 s |
@@ -29,9 +30,14 @@ better; bars are 95% confidence intervals.
 than measured directly, because the models do not agree on when to stop — see
 [Caveats](#caveats).
 
-**`35b-a3b@4bit` wins on every axis that matters.** It is within 1.5 points of
-the best quality score on the board while being 3.6× faster to decode and 6.4×
-faster to first token. The only variant that beats it on quality, `3.6-27b@4bit`,
+² Measured at low reasoning effort, not with reasoning off: gpt-oss cannot stop
+reasoning. Its nearest equivalent to the other rows, not the same measurement —
+see [gpt-oss-20b](#gpt-oss-20b-the-concise-one).
+
+**Among the Qwen builds, `35b-a3b@4bit` wins on every axis that matters.** It is
+within 1.5 points of the best quality score on the board while being 3.6×
+faster to decode and 6.4× faster to first token. `gpt-oss-20b` decodes faster
+still and ties it on the composite, but it is behind on GSM8K and on prefill. The only variant that beats it on quality, `3.6-27b@4bit`,
 takes **63.7 s to produce an answer where the MoE takes 13.1 s** — and buys 1.5
 points of composite for that, which is inside the confidence interval.
 
@@ -87,8 +93,12 @@ only if every test passes. Reasoning mode off, as everywhere else here.
 | `3.6-27b@4bit` (dense) | 41.7% | **60.6%** | 5,172 tok | 281 s |
 | `35b-a3b@8bit` (MoE) | 38.9% | 54.9% | 4,837 tok | 98 s |
 | `3.8-27b@4bit` (dense) | 38.3% | 53.1% | 3,515 tok | 191 s |
-| `35b-a3b@4bit` (MoE) | 36.0% | 50.9% | 4,106 tok | **63 s** |
+| `35b-a3b@4bit` (MoE) | 36.0% | 50.9% | 4,106 tok | 63 s |
+| `gpt-oss-20b@mxfp4` (MoE, low reasoning) | **49.7%** | 49.7%³ | **709 tok** | **13 s** |
 | Apple on-device | 16.6% | — | — | — |
+
+³ No gpt-oss answer reached the 4k cap, so a 16k run would return the same
+answers; this is the 4k score carried across, not a separate run.
 
 **At 4,096 tokens the benchmark mostly measures answer length.** Half of every
 Qwen build's answers hit the cap before a line of code appeared, and at that
@@ -137,6 +147,43 @@ Contamination caveat: LiveCodeBench stopped publishing after these problems,
 all of which predate every model measured here, so these numbers are not
 comparable with published LiveCodeBench scores. Between the builds on this
 machine the comparison is fair — they all faced the same 175 problems.
+
+### gpt-oss-20b: the concise one
+
+OpenAI's `gpt-oss-20b` is a MoE (21B total, 3.6B active) shipped with its
+expert weights in MXFP4, a 4-bit format; this is LM Studio's MLX build. It
+cannot switch reasoning off, so it ran at `reasoning_effort: low`, the least
+it does. Qwen ran with reasoning off. The comparison is the nearest available,
+not like for like.
+
+**On knowledge it is a tie; on arithmetic it is measurably behind.** MMLU
+83.8%, identical to the 4-bit MoE and 37–37 on paired items. GSM8K 93.2%
+against Qwen's 96.0–96.8%: on paired items the 4-bit MoE wins 11 to 2
+(p=0.022) and the dense `3.6-27b@4bit` 9 to 1 (p=0.021). None of its 17 misses
+were truncated or misparsed — they are wrong sums, plus one answer given in
+cents where dollars were asked for. So GSM8K, saturated across every Qwen
+build, does separate a different model family.
+
+**On code it is the best answer per token on the board.** 49.7% with a median
+answer of 709 tokens — about 420 of them reasoning — where the Qwen builds
+write 3,500–5,200. Not one of its 175 answers reached the 4k cap, so the budget
+finding above does not apply to it:
+
+- **At 4k it beats every Qwen build**, by 23–9 paired problems against the
+  dense `3.6-27b@4bit` (p=0.020) and 28–4 against the 4-bit MoE (p<0.001).
+  That is the budget, not ability: Qwen at 4k is mostly cut off.
+- **At 16k it ties the MoE and trails the dense build.** 18–20 against the
+  4-bit MoE (p=0.87), and 8–27 against `3.6-27b@4bit` (p=0.002). Its hard-problem
+  count, 17 of 80, is the MoE's (19), not the dense build's (29).
+- **It is by far the cheapest.** Median wait 13 s a problem against 63 s for
+  the MoE and 281 s for the dense build. Grading all 175 took **0.82 GPU-hours,
+  against 5.4 for the MoE and 19.3 for the dense build** — about 34 s per
+  problem solved, against ~3.6 min and ~11 min.
+
+**Speed:** 78.0 tok/s decode at a 4k prompt, 16% faster than the 4-bit MoE,
+and 85.6 on a short prompt. Prefill is about 20% slower throughout (432 against
+572 tok/s at 4k), so its first token comes later, and by a 16k prompt its
+decode (53.1) falls behind the MoE's (59.0).
 
 ### Qwen3.8-27B is a quality regression on this machine
 
@@ -254,6 +301,12 @@ cold load, once per model per session.**
   was. It costs 4.5× the wait per problem (281 s against 63 s), so the MoE
   remains roughly 3× cheaper per problem *solved*; pick the dense build when
   getting the answer matters more than getting it soon.
+- **Reach for `gpt-oss-20b` when answers should be short and cheap.** It ties
+  the MoE on MMLU and on LiveCodeBench at 16k, decodes 16% faster, and solves a
+  coding problem in a fifth of the MoE's time because it does not ramble. It
+  is measurably weaker at arithmetic (GSM8K −3.6 points, p=0.02), slower to
+  first token, and falls behind on decode at very long prompts. It cannot turn
+  reasoning off, so every answer carries a few hundred tokens of it.
 - **Do not use 8-bit.** It buys +1.07 MMLU points at 0.79σ — indistinguishable
   from zero — and costs 1.26–1.87× decode speed plus double the footprint. The
   earlier "8-bit is nearly free in energy terms" is true and no longer relevant:
@@ -284,8 +337,11 @@ cold load, once per model per session.**
   on a multiple-choice item, makes the run ~10× longer, and makes comparison
   against Apple's non-reasoning model meaningless. LM Studio honours neither
   `/no_think` nor `chat_template_kwargs`, but does honour an assistant prefill
-  of an empty `<think></think>` block. Scores in this report are all no-think
-  and are not comparable to reasoning-mode scores.
+  of an empty `<think></think>` block. Scores in this report are no-think and
+  are not comparable to reasoning-mode scores — except gpt-oss, which cannot
+  stop reasoning and ran at `reasoning_effort: low` (mode `effort-low`). Its
+  MMLU budget is 1,024 tokens rather than 8, because it reasons before giving
+  the letter; GSM8K and code keep the same budgets as everyone else.
 - **Percentages carry Wilson intervals**, which behave at the boundaries where
   the normal approximation does not. At 750 items that is roughly ±3 points, so
   differences smaller than that are not differences.
@@ -336,8 +392,12 @@ tokens fine, 4,376 nothing), and it **ignores `max_tokens`**.
 - **Quality here is two tasks, not a general claim.** GSM8K and MMLU say nothing
   about code, long-context work, instruction-following, or writing quality. A
   model that is 7 points better on MMLU is better at MMLU.
-- **GSM8K no longer discriminates** between these builds at all, so the
-  composite score is mostly MMLU wearing a disguise. Read the MMLU column.
+- **GSM8K no longer discriminates** between the Qwen builds at all, so among
+  them the composite score is mostly MMLU wearing a disguise. Read the MMLU
+  column. It does separate gpt-oss, by 3.6 points.
+- **gpt-oss's scores are low-effort reasoning, not no-think.** It does a few
+  hundred tokens more work per item than the Qwen builds, which may flatter its
+  quality relative to theirs. There is no way to measure it with reasoning off.
 - **"Time to a finished answer" is normalised, not measured.** The models do not
   agree on when to stop — Qwen runs to the 256-token cap, `fm` ignores the cap
   and wrote 1,026–1,492 tokens — so raw totals are not comparable. The figure is
@@ -475,3 +535,23 @@ suite rather than one test. Stored answers are kept whole precisely so
 The dashboard grew three tabs (quality vs speed, speed by dimension, the
 table), with every selection kept in the URL, and marks a score whose
 raised-budget run is still in flight as partial rather than final.
+
+### 2026-10-14 — gpt-oss-20b
+
+Added OpenAI's `gpt-oss-20b@mxfp4` (MLX build) to all three benchmarks:
+throughput at four prompt sizes, GSM8K+MMLU, and LiveCodeBench at 4k. About
+1.5 hours of machine time in all. Raw data in `results/2026-10-14/`.
+
+It cannot turn reasoning off, and the empty-think prefill that silences Qwen
+means nothing to its chat format, so `quality-bench` gained an `effort-low`
+mode (`reasoning_effort: low`, which LM Studio honours) that is recorded,
+joined and labelled separately from `no-think`. The dashboard had been guessing
+model attributes from the id and would have filed it as a dense 20B of unknown
+precision; `model-facts.json` now records what an id cannot say (MoE, 21B
+total, 3.6B active), and MXFP4 counts as 4-bit. `plot-quality-speed` now takes
+several results directories, so the chart above spans both dates.
+
+Learned: it ties the 4-bit Qwen MoE on MMLU (83.8%) and on LiveCodeBench at
+16k (18–20 paired), trails it on GSM8K (p=0.02), and decodes 16% faster. Its
+distinguishing trait is concision: 709-token median code answers, none
+truncated at 4k, and a full code pass in 0.82 GPU-hours against 5.4.
