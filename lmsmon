@@ -288,7 +288,6 @@ class Session:
         self.label = label
         self.requests = []
         self.last_prompt = None
-        self.last_ts = ts
 
     def running(self):
         return [r for r in self.requests if r.done is None and not r.no_result]
@@ -334,7 +333,6 @@ class Sessions:
         request = Request(self._new_id(), evt["ts"], how)
         session.requests.append(request)
         session.last_prompt = prompt
-        session.last_ts = evt["ts"]
         self.pending.setdefault(evt["model"], []).append((session, request))
         return session, request, new
 
@@ -349,7 +347,6 @@ class Sessions:
         else:
             session, request = queue.pop(0)
         request.done = evt
-        session.last_ts = evt["ts"]
         self.count += 1
         self.prompt_tokens += evt["prompt_tokens"] or 0
         self.completion_tokens += evt["completion_tokens"] or 0
@@ -611,7 +608,7 @@ def main():
             table = self.query_one("#sessions", DataTable)
             now = time.time()
             for session in self.sessions.sessions:
-                if str(session.id) in table.rows:
+                if str(session.id) in table.rows and session.running():
                     table.update_cell(
                         str(session.id), "state", session_state(session, now),
                         update_width=True,
@@ -640,9 +637,9 @@ def main():
 
     def session_state(session, now):
         running = session.running()
-        if running:
-            return running_text(running[0].ts, now)
-        return Text(f"idle {fmt_duration(now - session.last_ts)}", style="dim")
+        # Blank otherwise: LM Studio has no session end, so there's no state
+        # to report between requests beyond "nothing running".
+        return running_text(running[0].ts, now) if running else ""
 
     def in_order(cells, columns):
         return [cells[key] for _, key in columns]
