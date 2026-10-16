@@ -14,11 +14,13 @@ Two sources, the same ones `lms-monitor/collector.py` stores for Grafana:
   `lms log stream --json --stats -s model`, tailed -- an `input` event when a
   prediction starts and an `output` event, with stats, when it finishes. The
   pair is what lets a request show up as in flight rather than only after the
-  fact.
+  fact. The input event carries the full prompt, which is what groups
+  requests into sessions (see "sessions" below).
 
     ./lmsmon
 
-Keys: q quit, c cycle color, x clear request history.
+Keys: up/down pick a session to show its requests, q quit, c cycle color,
+x clear history.
 
 Colors work the way mactop's do: the terminal's own background shows through,
 `c` steps through accent colors, and the choice is remembered in
@@ -29,6 +31,7 @@ load this file with the stdlib alone; Textual is only imported in `main`.
 """
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -43,7 +46,27 @@ ACCENTS = {
     "red": "ansi_red",
     "white": "ansi_white",
 }
-HISTORY = 500  # request rows kept in the table
+HISTORY = 500  # sessions kept
+SESSION_COLUMNS = [
+    ("started", "started"),
+    ("model", "model"),
+    ("turns", "turns"),
+    ("context", "context"),
+    ("compl", "compl"),
+    ("tok/s", "tok_s"),
+    ("state", "state"),
+    ("session", "label"),  # last, so a narrow terminal clips only this
+]
+REQUEST_COLUMNS = [
+    ("time", "time"),
+    ("joined", "how"),
+    ("state", "state"),
+    ("prompt", "prompt"),
+    ("compl", "compl"),
+    ("TTFT", "ttft"),
+    ("tok/s", "tok_s"),
+    ("stop", "stop"),
+]
 SPARK_WIDTH = 40
 SPARK_CHARS = "▁▂▃▄▅▆▇█"
 
@@ -105,7 +128,8 @@ def parse_event(line):
     ts = ts / 1000.0 if ts else time.time()
     model = data.get("modelIdentifier") or data.get("modelPath") or "?"
     if kind == "llm.prediction.input":
-        return {"kind": "input", "ts": ts, "model": model}
+        return {"kind": "input", "ts": ts, "model": model,
+                "prompt": data.get("input") or ""}
     if kind != "llm.prediction.output":
         return None
     stats = data.get("stats") or {}
@@ -190,60 +214,200 @@ def fmt_num(v, spec):
     return "" if v is None else format(v, spec)
 
 
-class Requests:
-    """Request history, pairing each output event with its pending input.
+# -- sessions ----------------------------------------------------------------
+#
+# LM Studio has no notion of a session; the grouping here is deliberately one
+# rule that can be checked by eye. A chat or agent loop resends the whole
+# conversation each turn, so turn N+1's prompt is turn N's prompt with the
+# reply and the next message (or tool result) appended. The one wrinkle is the
+# end: a template closes the prompt with a header that opens the assistant's
+# turn ("<|start|>assistant", "<|im_start|>assistant\n<think>\n"), and some
+# re-render that header differently once the turn is in the history. So:
+#
+#   A request continues a session if its prompt starts with the session's
+#   previous prompt, minus that closing assistant header.
+#
+# Same model only. Nothing fuzzy: no similarity scores, no time windows. If
+# the rule doesn't hold the request starts a new session, and each request
+# records which way it went (`how`) so the grouping can be audited.
+
+GEN_HEADER_MAX = 64  # longest closing "...assistant..." header that's dropped
+EXPIRE_GRACE = 5.0  # seconds a request may outlive its model's activity
+EXPIRE_UNLOADED = 120.0  # ...or wait on a model that isn't loaded
+
+SPECIAL_TOKEN = re.compile(r"<\|[^|>]*\|>|</?think>")
+ROLE_WORD = re.compile(r"^\s*(system|developer|user|assistant|tool)\b:?\s*", re.I)
+
+
+def prompt_base(prompt):
+    """`prompt` without the closing assistant header, if it ends in one."""
+    i = prompt.rfind("assistant")
+    if i > 0 and len(prompt) - i <= GEN_HEADER_MAX:
+        return prompt[:i]
+    return prompt
+
+
+def continues(prev_prompt, prompt):
+    """How `prompt` continues `prev_prompt` ("same prompt", "+N chars"), or
+    None if it doesn't."""
+    if not prev_prompt or not prompt:
+        return None
+    if prompt == prev_prompt:
+        return "same prompt"
+    base = prompt_base(prev_prompt)
+    if prompt.startswith(base):
+        return f"+{len(prompt) - len(base):,} chars"
+    return None
+
+
+def first_message(prompt, width=60):
+    """The last message in a session's first prompt, for a label: the text
+    between the final special tokens, without its role word. Display only;
+    it plays no part in grouping."""
+    for segment in reversed(SPECIAL_TOKEN.split(prompt)):
+        text = " ".join(ROLE_WORD.sub("", segment).split())
+        if re.search(r"\w\w", text):
+            return text[:width]
+    return ""
+
+
+class Request:
+    def __init__(self, rid, ts, how):
+        self.id = rid
+        self.ts = ts
+        self.how = how  # "new session", "+N chars", "same prompt", ...
+        self.done = None  # the output event, once finished
+        self.no_result = False  # ended without an output event (see expire)
+
+
+class Session:
+    def __init__(self, sid, model, ts, label):
+        self.id = sid
+        self.model = model
+        self.ts = ts
+        self.label = label
+        self.requests = []
+        self.last_prompt = None
+        self.last_ts = ts
+
+    def running(self):
+        return [r for r in self.requests if r.done is None and not r.no_result]
+
+    def finished(self):
+        return [r for r in self.requests if r.done is not None]
+
+
+class Sessions:
+    """Requests grouped into sessions, pairing each output with its input.
 
     LM Studio's events carry no request id, so an output is matched to the
     oldest pending input for the same model. With `parallel` > 1 that can pair
     the wrong two when requests finish out of order, which only affects which
     row shows which start time; the stats themselves come whole from the
     output event. An output with no pending input (the monitor started mid-
-    request) gets a row of its own.
+    request) gets a session of its own.
     """
 
     def __init__(self):
+        self.sessions = []  # oldest first
         self.next_id = 0
-        self.pending = {}  # model -> [request id, ...] oldest first
-        self.started = {}  # request id -> start ts
+        self.pending = {}  # model -> [(session, request), ...] oldest first
         self.tok_s = []
         self.count = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
 
     def start(self, evt):
-        rid = self._new_id()
-        self.pending.setdefault(evt["model"], []).append(rid)
-        self.started[rid] = evt["ts"]
-        return rid
+        """Record an input event; return (session, request, is_new_session)."""
+        prompt = evt.get("prompt") or ""
+        for session in reversed(self.sessions):  # most recent first
+            if session.model != evt["model"]:
+                continue
+            how = continues(session.last_prompt, prompt)
+            if how:
+                break
+        else:
+            session, how = None, "new session"
+        new = session is None
+        if new:
+            session = self._new_session(evt, first_message(prompt))
+        request = Request(self._new_id(), evt["ts"], how)
+        session.requests.append(request)
+        session.last_prompt = prompt
+        session.last_ts = evt["ts"]
+        self.pending.setdefault(evt["model"], []).append((session, request))
+        return session, request, new
 
     def finish(self, evt):
-        """Record `evt`; return (request id, whether that row already exists)."""
+        """Record an output event; return (session, request, is_new_session)."""
         queue = self.pending.get(evt["model"])
-        existed = bool(queue)
-        rid = queue.pop(0) if existed else self._new_id()
-        self.started.pop(rid, None)
+        new = not queue
+        if new:
+            session = self._new_session(evt, "(started before lmsmon)")
+            request = Request(self._new_id(), evt["ts"], "unknown")
+            session.requests.append(request)
+        else:
+            session, request = queue.pop(0)
+        request.done = evt
+        session.last_ts = evt["ts"]
         self.count += 1
         self.prompt_tokens += evt["prompt_tokens"] or 0
         self.completion_tokens += evt["completion_tokens"] or 0
         if evt["tok_s"] is not None:
             self.tok_s.append(evt["tok_s"])
             del self.tok_s[: -SPARK_WIDTH * 4]
-        return rid, existed
+        return session, request, new
+
+    def expire(self, ps_rows, now):
+        """End pending requests on models that `lms ps` shows idle or unloaded.
+
+        A request that errors or is cancelled gets an input event but never an
+        output, so without this it would read "running" forever. A model that
+        is loaded and idle gets EXPIRE_GRACE for an output event still on its
+        way; one not loaded at all gets EXPIRE_UNLOADED, since a request can
+        sit waiting on a cold load. Returns the sessions touched.
+        """
+        status = {r["model"]: r for r in ps_rows}
+        touched = []
+        for model, queue in self.pending.items():
+            row = status.get(model)
+            if row is None:
+                grace = EXPIRE_UNLOADED
+            elif row["status"] == "idle" and not row["queued"]:
+                grace = EXPIRE_GRACE
+            else:
+                continue
+            keep = []
+            for session, request in queue:
+                if now - request.ts > grace:
+                    request.no_result = True
+                    touched.append(session)
+                else:
+                    keep.append((session, request))
+            queue[:] = keep
+        return touched
+
+    def _new_session(self, evt, label):
+        session = Session(self._new_id(), evt["model"], evt["ts"], label)
+        self.sessions.append(session)
+        del self.sessions[:-HISTORY]
+        return session
 
     def _new_id(self):
         self.next_id += 1
         return self.next_id
 
     def in_flight(self):
-        return len(self.started)
+        return sum(len(q) for q in self.pending.values())
 
     def summary(self):
         if not self.count:
-            return f"{self.in_flight()} in flight" if self.started else "no requests yet"
+            return f"{self.in_flight()} in flight" if self.in_flight() else "no requests yet"
         recent = self.tok_s[-SPARK_WIDTH:]
         avg = sum(recent) / len(recent) if recent else None
         last = self.tok_s[-1] if self.tok_s else None
         return (
+            f"{len(self.sessions)} session{'' if len(self.sessions) == 1 else 's'} · "
             f"{self.count} done · {self.in_flight()} in flight · "
             f"{self.prompt_tokens:,} prompt / {self.completion_tokens:,} completion tok · "
             f"tok/s last {fmt_num(last, '.1f')} avg {fmt_num(avg, '.1f')}  "
@@ -279,7 +443,8 @@ def main():
         CSS = """
         Header { background: ansi_default; color: $primary; }
         #models { height: auto; max-height: 12; border: round $primary; }
-        #requests { height: 1fr; border: round $primary; }
+        #sessions { height: 1fr; border: round $primary; }
+        #detail { height: 1fr; border: round $primary; }
         #summary { height: 1; padding: 0 1; color: $primary; }
         DataTable > .datatable--header {
             background: ansi_default; color: $primary; text-style: bold underline;
@@ -306,35 +471,33 @@ def main():
         def compose(self) -> ComposeResult:
             yield Header()
             yield DataTable(id="models", cursor_type="none", zebra_stripes=True)
-            yield DataTable(id="requests", cursor_type="none", zebra_stripes=True)
+            yield DataTable(id="sessions", cursor_type="row", zebra_stripes=True)
+            yield DataTable(id="detail", cursor_type="none", zebra_stripes=True)
             yield Static(id="summary")
             yield Footer()
 
         def on_mount(self):
-            self.requests = Requests()
+            self.sessions = Sessions()
+            self.selected = None  # session id shown in the detail table
             self.stream = None
             models = self.query_one("#models", DataTable)
             models.border_title = "loaded models"
             models.add_columns(
                 "model", "quant", "size", "context", "phase", "queued", "unload in"
             )
-            reqs = self.query_one("#requests", DataTable)
-            reqs.border_title = "requests"
-            for label, key in [
-                ("time", "time"),
-                ("model", "model"),
-                ("state", "state"),
-                ("prompt", "prompt"),
-                ("compl", "compl"),
-                ("TTFT", "ttft"),
-                ("tok/s", "tok_s"),
-                ("stop", "stop"),
-            ]:
-                reqs.add_column(label, key=key)
+            sessions = self.query_one("#sessions", DataTable)
+            sessions.border_title = "sessions"
+            for label, key in SESSION_COLUMNS:
+                sessions.add_column(label, key=key)
+            detail = self.query_one("#detail", DataTable)
+            detail.border_title = "requests"
+            for label, key in REQUEST_COLUMNS:
+                detail.add_column(label, key=key)
+            sessions.focus()
             self.refresh_summary()
             self.poll_ps()
             self.set_interval(1.0, self.poll_ps)
-            self.set_interval(1.0, self.tick_in_flight)
+            self.set_interval(1.0, self.tick)
             threading.Thread(target=self.tail_stream, daemon=True).start()
 
         def on_unmount(self):
@@ -370,6 +533,11 @@ def main():
                     f"{r['queued']}/{r['parallel']}",
                     fmt_ttl(r),
                 )
+            if not error:
+                for session in set(self.sessions.expire(rows, time.time())):
+                    self.show_session_row(session, new=False)
+                    if session.id == self.selected:
+                        self.show_detail(session)
             if error:
                 self.sub_title = f"lms ps: {error[:80]}"
             elif not rows:
@@ -393,55 +561,128 @@ def main():
                     self.call_from_thread(self.show_event, evt)
 
         def show_event(self, evt):
-            table = self.query_one("#requests", DataTable)
-            clock = time.strftime("%H:%M:%S", time.localtime(evt["ts"]))
             if evt["kind"] == "input":
-                rid = self.requests.start(evt)
-                table.add_row(
-                    clock, evt["model"], Text("running", style="bold yellow"),
-                    "", "", "", "", "", key=str(rid),
-                )
+                session, _, new = self.sessions.start(evt)
             else:
-                rid, existed = self.requests.finish(evt)
-                cells = {
-                    "state": Text("done", style="green"),
-                    "prompt": fmt_num(evt["prompt_tokens"], ","),
-                    "compl": fmt_num(evt["completion_tokens"], ","),
-                    "ttft": fmt_num(evt["ttft_s"], ".2f") + ("s" if evt["ttft_s"] is not None else ""),
-                    "tok_s": fmt_num(evt["tok_s"], ".1f"),
-                    "stop": evt["stop"] or "",
-                }
-                if existed and str(rid) in table.rows:  # may have aged out
-                    for col, value in cells.items():
-                        table.update_cell(str(rid), col, value, update_width=True)
-                else:
-                    table.add_row(
-                        clock, evt["model"], *cells.values(), key=str(rid)
-                    )
-            while table.row_count > HISTORY:
-                table.remove_row(next(iter(table.rows)))
-            table.scroll_end(animate=False)
+                session, _, new = self.sessions.finish(evt)
+            table = self.query_one("#sessions", DataTable)
+            # Follow the newest session unless the cursor was moved off it.
+            following = table.row_count == 0 or table.cursor_row == table.row_count - 1
+            self.show_session_row(session, new)
+            live = {str(s.id) for s in self.sessions.sessions}
+            for key in [k for k in table.rows if k.value not in live]:
+                table.remove_row(key)
+            if new and following:
+                table.move_cursor(row=table.row_count - 1)
+                self.show_detail(session)
+            elif session.id == self.selected:
+                self.show_detail(session)
             self.refresh_summary()
 
-        def tick_in_flight(self):
-            table = self.query_one("#requests", DataTable)
+        def show_session_row(self, session, new):
+            table = self.query_one("#sessions", DataTable)
+            cells = session_cells(session, time.time())
+            if new or str(session.id) not in table.rows:
+                table.add_row(*in_order(cells, SESSION_COLUMNS), key=str(session.id))
+            else:
+                for col, value in cells.items():
+                    table.update_cell(str(session.id), col, value, update_width=True)
+
+        def on_data_table_row_highlighted(self, event):
+            if event.data_table.id != "sessions" or event.row_key is None:
+                return
+            sid = int(event.row_key.value)
+            session = next((s for s in self.sessions.sessions if s.id == sid), None)
+            if session:
+                self.show_detail(session)
+
+        def show_detail(self, session):
+            self.selected = session.id
+            detail = self.query_one("#detail", DataTable)
+            detail.border_title = f"requests · {session.label or 'session'}"[:100]
+            detail.clear()
             now = time.time()
-            for rid, started in self.requests.started.items():
-                if str(rid) in table.rows:
+            for request in session.requests:
+                detail.add_row(*in_order(request_cells(request, now), REQUEST_COLUMNS))
+            detail.scroll_end(animate=False)
+
+        def tick(self):
+            """Refresh the clocks: running/idle times on sessions and requests."""
+            table = self.query_one("#sessions", DataTable)
+            now = time.time()
+            for session in self.sessions.sessions:
+                if str(session.id) in table.rows:
                     table.update_cell(
-                        str(rid), "state",
-                        Text(f"running {fmt_duration(now - started)}", style="bold yellow"),
+                        str(session.id), "state", session_state(session, now),
                         update_width=True,
                     )
+            selected = next(
+                (s for s in self.sessions.sessions if s.id == self.selected), None
+            )
+            if selected and selected.running():
+                self.show_detail(selected)
             self.refresh_summary()
 
         def refresh_summary(self):
-            self.query_one("#summary", Static).update(self.requests.summary())
+            self.query_one("#summary", Static).update(self.sessions.summary())
 
         def action_clear(self):
-            self.query_one("#requests", DataTable).clear()
-            self.requests = Requests()
+            self.query_one("#sessions", DataTable).clear()
+            detail = self.query_one("#detail", DataTable)
+            detail.clear()
+            detail.border_title = "requests"
+            self.sessions = Sessions()
+            self.selected = None
             self.refresh_summary()
+
+    def running_text(started, now):
+        return Text(f"running {fmt_duration(now - started)}", style="bold yellow")
+
+    def session_state(session, now):
+        running = session.running()
+        if running:
+            return running_text(running[0].ts, now)
+        return Text(f"idle {fmt_duration(now - session.last_ts)}", style="dim")
+
+    def in_order(cells, columns):
+        return [cells[key] for _, key in columns]
+
+    def session_cells(session, now):
+        done = session.finished()
+        last = done[-1].done if done else None
+        return {
+            "started": time.strftime("%H:%M:%S", time.localtime(session.ts)),
+            "model": session.model,
+            "label": session.label,
+            "turns": str(len(session.requests)),
+            "context": fmt_num(last and last["prompt_tokens"], ","),
+            "compl": f"{sum(r.done['completion_tokens'] or 0 for r in done):,}" if done else "",
+            "tok_s": fmt_num(last and last["tok_s"], ".1f"),
+            "state": session_state(session, now),
+        }
+
+    def request_cells(request, now):
+        evt = request.done
+        if evt is None:
+            state = (Text("no result", style="red") if request.no_result
+                     else running_text(request.ts, now))
+            return {
+                "time": time.strftime("%H:%M:%S", time.localtime(request.ts)),
+                "how": request.how,
+                "state": state,
+                "prompt": "", "compl": "", "ttft": "", "tok_s": "", "stop": "",
+            }
+        ttft = evt["ttft_s"]
+        return {
+            "time": time.strftime("%H:%M:%S", time.localtime(request.ts)),
+            "how": request.how,
+            "state": Text("done", style="green"),
+            "prompt": fmt_num(evt["prompt_tokens"], ","),
+            "compl": fmt_num(evt["completion_tokens"], ","),
+            "ttft": "" if ttft is None else f"{ttft:.2f}s",
+            "tok_s": fmt_num(evt["tok_s"], ".1f"),
+            "stop": evt["stop"] or "",
+        }
 
     LmsMon().run()
 

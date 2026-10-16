@@ -281,10 +281,21 @@ not a substitute for a plug meter.
 
 A terminal UI (Textual, pulled in by `uv run --script`) showing what LM
 Studio is doing right now: the loaded models with their phase (idle / prefill
-/ decode), queue depth and TTL countdown, and a row per request that appears
-when the request starts and is filled in with prompt/completion tokens, TTFT,
-tok/s and stop reason when it finishes. A summary line keeps totals and a
-tok/s sparkline. As in mactop, the terminal's own background shows through
+/ decode), queue depth and TTL countdown, and requests grouped into
+**sessions**. Pick a session with the arrow keys to see its requests, each
+filled in with prompt/completion tokens, TTFT, tok/s and stop reason when it
+finishes. A summary line keeps totals and a tok/s sparkline.
+
+LM Studio has no session ids, so grouping is one rule, kept deliberately
+simple: a request continues a session if its prompt starts with that
+session's previous prompt, minus the closing assistant header the chat
+template appends. That holds for chat turns and tool-call loops, since each
+turn resends the conversation so far. Anything else (an edited or
+truncated history, a different model) starts a new session. Each request's
+"joined" column says which way it went (`new session`, `+N chars`, `same
+prompt`), so a grouping can always be checked. A request that LM Studio never
+finishes (errored or cancelled) is marked `no result` once its model goes
+idle. As in mactop, the terminal's own background shows through
 and `c` cycles the accent color (remembered in `~/.config/lmsmon/config.json`).
 `x` clears the history, `q` quits.
 

@@ -506,20 +506,88 @@ class LmsmonTests(unittest.TestCase):
         self.assertEqual((done["prompt_tokens"], done["completion_tokens"]), (73, 23))
         self.assertEqual(done["stop"], "eosFound")
 
-    def test_requests_pair_input_with_output(self):
-        reqs = lmsmon.Requests()
-        rid = reqs.start(lmsmon.parse_event(self.INPUT))
-        self.assertEqual(reqs.in_flight(), 1)
-        self.assertEqual(reqs.finish(lmsmon.parse_event(self.OUTPUT)), (rid, True))
-        self.assertEqual(reqs.in_flight(), 0)
-        self.assertEqual((reqs.count, reqs.prompt_tokens), (1, 73))
+    def test_output_pairs_with_input(self):
+        sessions = lmsmon.Sessions()
+        s1, r1, new = sessions.start(lmsmon.parse_event(self.INPUT))
+        self.assertTrue(new)
+        self.assertEqual(sessions.in_flight(), 1)
+        s2, r2, new = sessions.finish(lmsmon.parse_event(self.OUTPUT))
+        self.assertEqual((s2, r2, new), (s1, r1, False))
+        self.assertEqual(sessions.in_flight(), 0)
+        self.assertEqual(r1.done["completion_tokens"], 23)
+        self.assertEqual((sessions.count, sessions.prompt_tokens), (1, 73))
 
-    def test_output_without_input_gets_own_row(self):
-        """Started mid-request: the output still counts, under a fresh id."""
-        reqs = lmsmon.Requests()
-        rid, existed = reqs.finish(lmsmon.parse_event(self.OUTPUT))
-        self.assertFalse(existed)
-        self.assertEqual(reqs.start(lmsmon.parse_event(self.INPUT)), rid + 1)
+    def test_output_without_input_gets_own_session(self):
+        """Started mid-request: the output still counts, in a session of its own."""
+        sessions = lmsmon.Sessions()
+        session, request, new = sessions.finish(lmsmon.parse_event(self.OUTPUT))
+        self.assertTrue(new)
+        self.assertEqual(request.how, "unknown")
+        self.assertEqual(sessions.count, 1)
+
+    def test_expire_requests_that_never_finish(self):
+        """An errored/cancelled request logs no output; once its model is
+        idle (or long unloaded) it is marked no-result, not left running."""
+        sessions = lmsmon.Sessions()
+        evt = lmsmon.parse_event(self.INPUT)
+        session, request, _ = sessions.start(evt)
+        t0 = evt["ts"]
+        idle = [{"model": evt["model"], "status": "idle", "queued": 0}]
+        busy = [{"model": evt["model"], "status": "generating", "queued": 0}]
+        self.assertEqual(sessions.expire(busy, t0 + 600), [], "still generating")
+        self.assertEqual(sessions.expire(idle, t0 + 2), [], "within grace")
+        self.assertEqual(sessions.expire([], t0 + 60), [], "unloaded: may be loading")
+        self.assertEqual(sessions.expire(idle, t0 + 10), [session])
+        self.assertTrue(request.no_result)
+        self.assertEqual((session.running(), sessions.in_flight()), ([], 0))
+
+    def test_sessions_from_captured_prompts(self):
+        """Real prompts from both models: a tool-call loop, then an unrelated
+        chat with the same system prompt.
+
+        gpt-oss: three turns of one tool-call conversation, then Oslo.
+        Qwen: the first turn ran out of tokens mid-thought, so the client
+        resent without it and the template merged the two user messages --
+        history rewritten, which the rule treats as a new session rather than
+        guessing. The tool-call turn after that joins it; Oslo is separate.
+        """
+        sessions = lmsmon.Sessions()
+        hows = []
+        for line in (HERE / "testdata" / "lmsmon-prompts.jsonl").read_text().splitlines():
+            session, request, _ = sessions.start(lmsmon.parse_event(line))
+            hows.append((session.id, request.how))
+        gpt = [s for s in sessions.sessions if "gpt-oss" in s.model]
+        qwen = [s for s in sessions.sessions if "qwen" in s.model]
+        self.assertEqual([len(s.requests) for s in gpt], [3, 1])
+        self.assertEqual([len(s.requests) for s in qwen], [1, 2, 1])
+        self.assertEqual([r.how for r in gpt[0].requests],
+                         ["new session", "+204 chars", "+203 chars"])
+        self.assertEqual(gpt[0].label, "What's the weather in Paris and in Rome? Use the tool.")
+        self.assertEqual(gpt[1].label, "What's the weather in Oslo? Use the tool.")
+        self.assertTrue(qwen[1].label.endswith("Use the tool. Thank"), "60-char cap")
+
+    def test_continues(self):
+        gen = "<|im_start|>assistant\n<think>\n"
+        turn1 = "<|im_start|>system\nS<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n" + gen
+        # The template re-renders the closing header once the turn is history.
+        turn2 = turn1[: -len("assistant\n<think>\n")] + "assistant\nhello<|im_end|>\n" \
+            "<|im_start|>user\nmore<|im_end|>\n" + gen
+        self.assertEqual(lmsmon.continues(turn1, turn2), f"+{len(turn2) - len(turn1) + 18} chars")
+        self.assertEqual(lmsmon.continues(turn1, turn1), "same prompt")
+        # Same system prompt, different short first message: not a session.
+        other = turn1.replace("user\nhi", "user\nhey")
+        self.assertIsNone(lmsmon.continues(turn1, other))
+        self.assertIsNone(lmsmon.continues("", turn1))
+        # "assistant" far from the end isn't a closing header; exact prefix only.
+        self.assertEqual(lmsmon.prompt_base("assistant" + "x" * 100), "assistant" + "x" * 100)
+
+    def test_first_message(self):
+        self.assertEqual(lmsmon.first_message(
+            "<|start|>user<|message|>Say hi<|end|><|start|>assistant"), "Say hi")
+        self.assertEqual(lmsmon.first_message(
+            "<|start_header_id|>user<|end_header_id|>\n\nHello there<|eot_id|>"),
+            "Hello there")
+        self.assertEqual(lmsmon.first_message("<|x|>"), "")
 
     def test_sparkline(self):
         self.assertEqual(lmsmon.sparkline([]), "")
