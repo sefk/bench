@@ -526,6 +526,18 @@ class LmsmonTests(unittest.TestCase):
         self.assertEqual(lmsmon.sparkline([0, 50, 100]), "▁▅█")
         self.assertEqual(len(lmsmon.sparkline(range(1, 100), width=10)), 10)
 
+    def test_accent_cycles_and_persists(self):
+        names = list(lmsmon.ACCENTS)
+        self.assertEqual(lmsmon.next_accent(names[0]), names[1])
+        self.assertEqual(lmsmon.next_accent(names[-1]), names[0], "wraps")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "sub", "config.json")
+            self.assertEqual(lmsmon.load_accent(path), names[0], "default")
+            lmsmon.save_accent("amber", path)
+            self.assertEqual(lmsmon.load_accent(path), "amber")
+            path.write_text('{"accent": "plaid"}')
+            self.assertEqual(lmsmon.load_accent(path), names[0], "unknown -> default")
+
     def test_formatting(self):
         self.assertEqual(lmsmon.fmt_bytes(12104314420), "11.3 GB")
         self.assertEqual(lmsmon.fmt_duration(59), "59s")

@@ -284,7 +284,9 @@ Studio is doing right now: the loaded models with their phase (idle / prefill
 / decode), queue depth and TTL countdown, and a row per request that appears
 when the request starts and is filled in with prompt/completion tokens, TTFT,
 tok/s and stop reason when it finishes. A summary line keeps totals and a
-tok/s sparkline. `c` clears the history, `q` quits.
+tok/s sparkline. As in mactop, the terminal's own background shows through
+and `c` cycles the accent color (remembered in `~/.config/lmsmon/config.json`).
+`x` clears the history, `q` quits.
 
 It reads the same `lms ps --json` and `lms log stream` sources as
 `lms-monitor/collector.py`, which stores them for Grafana instead. Neither

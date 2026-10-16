@@ -18,7 +18,11 @@ Two sources, the same ones `lms-monitor/collector.py` stores for Grafana:
 
     ./lmsmon
 
-Keys: q quit, c clear request history.
+Keys: q quit, c cycle color, x clear request history.
+
+Colors work the way mactop's do: the terminal's own background shows through,
+`c` steps through accent colors, and the choice is remembered in
+~/.config/lmsmon/config.json.
 
 The parsing below is plain functions with no Textual import, so `tests.py` can
 load this file with the stdlib alone; Textual is only imported in `main`.
@@ -26,7 +30,19 @@ load this file with the stdlib alone; Textual is only imported in `main`.
 
 import json
 import time
+from pathlib import Path
 
+CONFIG_PATH = Path.home() / ".config" / "lmsmon" / "config.json"
+# Accent name -> ANSI color, so the terminal's palette decides the exact shade.
+ACCENTS = {
+    "green": "ansi_green",
+    "amber": "ansi_yellow",
+    "blue": "ansi_blue",
+    "cyan": "ansi_cyan",
+    "magenta": "ansi_magenta",
+    "red": "ansi_red",
+    "white": "ansi_white",
+}
 HISTORY = 500  # request rows kept in the table
 SPARK_WIDTH = 40
 SPARK_CHARS = "▁▂▃▄▅▆▇█"
@@ -136,6 +152,30 @@ def fmt_duration(s):
     return f"{s // 3600}h{s % 3600 // 60:02d}m"
 
 
+def next_accent(current):
+    names = list(ACCENTS)
+    i = names.index(current) if current in names else -1
+    return names[(i + 1) % len(names)]
+
+
+def load_accent(path=CONFIG_PATH):
+    try:
+        accent = json.loads(path.read_text()).get("accent")
+    except (OSError, ValueError, AttributeError):
+        accent = None
+    return accent if accent in ACCENTS else next(iter(ACCENTS))
+
+
+def save_accent(accent, path=CONFIG_PATH):
+    try:
+        config = json.loads(path.read_text())
+    except (OSError, ValueError):
+        config = {}
+    config["accent"] = accent
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2) + "\n")
+
+
 def fmt_ttl(row):
     """A model's unload countdown. While a request is running LM Studio
     reports no lastUsedTime, so a model with a TTL but no countdown is busy."""
@@ -214,24 +254,54 @@ class Requests:
 def main():
     import subprocess
     import threading
+    from dataclasses import replace
 
     from rich.text import Text
     from textual.app import App, ComposeResult
+    from textual.theme import BUILTIN_THEMES
     from textual.widgets import DataTable, Footer, Header, Static
 
     def phase(status):
         label, style = PHASES.get(status, (status, ""))
         return Text(label, style=style)
 
+    def accent_theme(name, color):
+        """ansi-dark (terminal background shows through) with `color` as accent."""
+        base = BUILTIN_THEMES["ansi-dark"]
+        return replace(
+            base, name=f"lmsmon-{name}", primary=color, accent=color,
+            variables={**base.variables, "footer-key-foreground": color},
+        )
+
     class LmsMon(App):
         TITLE = "lmsmon"
         SUB_TITLE = "LM Studio activity"
         CSS = """
+        Header { background: ansi_default; color: $primary; }
         #models { height: auto; max-height: 12; border: round $primary; }
         #requests { height: 1fr; border: round $primary; }
-        #summary { height: 1; padding: 0 1; }
+        #summary { height: 1; padding: 0 1; color: $primary; }
+        DataTable > .datatable--header {
+            background: ansi_default; color: $primary; text-style: bold underline;
+        }
         """
-        BINDINGS = [("q", "quit", "Quit"), ("c", "clear", "Clear history")]
+        BINDINGS = [
+            ("q", "quit", "Quit"),
+            ("c", "cycle_color", "Color"),
+            ("x", "clear", "Clear history"),
+        ]
+
+        def on_load(self):
+            for name, color in ACCENTS.items():
+                self.register_theme(accent_theme(name, color))
+            self.accent_name = load_accent()
+            self.theme = f"lmsmon-{self.accent_name}"
+
+        def action_cycle_color(self):
+            self.accent_name = next_accent(self.accent_name)
+            self.theme = f"lmsmon-{self.accent_name}"
+            self.notify(self.accent_name, timeout=1)
+            save_accent(self.accent_name)
 
         def compose(self) -> ComposeResult:
             yield Header()
