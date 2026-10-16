@@ -19,8 +19,10 @@ Two sources, the same ones `lms-monitor/collector.py` stores for Grafana:
 
     ./lmsmon
 
-Keys: up/down pick a session to show its requests, q quit, c cycle color,
-x clear history.
+Keys, after datatalk's view_logs: up/down or j/k move, g/G top/bottom (at the
+bottom the view follows new sessions), space expands/collapses the current
+session into its requests, a expands/collapses all. c cycles the color, x
+clears history, q quits.
 
 Colors work the way mactop's do: the terminal's own background shows through,
 `c` steps through accent colors, and the choice is remembered in
@@ -47,25 +49,20 @@ ACCENTS = {
     "white": "ansi_white",
 }
 HISTORY = 500  # sessions kept
-SESSION_COLUMNS = [
-    ("started", "started"),
+# One table: a row per session, and under an expanded session a row per
+# request (turn). On a session row context/tok/s are its latest turn's and
+# compl is the total; the last column is the session's first message, or on a
+# request row how it joined the session and its stop reason.
+COLUMNS = [
+    ("time", "time"),
     ("model", "model"),
     ("turns", "turns"),
     ("context", "context"),
     ("compl", "compl"),
+    ("TTFT", "ttft"),
     ("tok/s", "tok_s"),
     ("state", "state"),
     ("session", "label"),  # last, so a narrow terminal clips only this
-]
-REQUEST_COLUMNS = [
-    ("time", "time"),
-    ("joined", "how"),
-    ("state", "state"),
-    ("prompt", "prompt"),
-    ("compl", "compl"),
-    ("TTFT", "ttft"),
-    ("tok/s", "tok_s"),
-    ("stop", "stop"),
 ]
 SPARK_WIDTH = 40
 SPARK_CHARS = "▁▂▃▄▅▆▇█"
@@ -419,6 +416,7 @@ def main():
 
     from rich.text import Text
     from textual.app import App, ComposeResult
+    from textual.binding import Binding
     from textual.theme import BUILTIN_THEMES
     from textual.widgets import DataTable, Footer, Header, Static
 
@@ -441,16 +439,24 @@ def main():
         Header { background: ansi_default; color: $primary; }
         #models { height: auto; max-height: 12; border: round $primary; }
         #sessions { height: 1fr; border: round $primary; }
-        #detail { height: 1fr; border: round $primary; }
         #summary { height: 1; padding: 0 1; color: $primary; }
         DataTable > .datatable--header {
             background: ansi_default; color: $primary; text-style: bold underline;
         }
         """
+        # Navigation follows datatalk's view_logs: collapsed by default, space
+        # toggles the current line, a toggles all, G jumps to the end and
+        # follows new sessions from there.
         BINDINGS = [
-            ("q", "quit", "Quit"),
+            ("space", "toggle", "Expand"),
+            ("a", "toggle_all", "All"),
+            Binding("j", "move(1)", show=False),
+            Binding("k", "move(-1)", show=False),
+            Binding("g", "top", show=False),
+            Binding("G", "bottom", show=False),
             ("c", "cycle_color", "Color"),
-            ("x", "clear", "Clear history"),
+            ("x", "clear", "Clear"),
+            ("q", "quit", "Quit"),
         ]
 
         def on_load(self):
@@ -468,29 +474,26 @@ def main():
         def compose(self) -> ComposeResult:
             yield Header()
             yield DataTable(id="models", cursor_type="none", zebra_stripes=True)
-            yield DataTable(id="sessions", cursor_type="row", zebra_stripes=True)
-            yield DataTable(id="detail", cursor_type="none", zebra_stripes=True)
+            yield DataTable(id="sessions", cursor_type="row")
             yield Static(id="summary")
             yield Footer()
 
         def on_mount(self):
             self.sessions = Sessions()
-            self.selected = None  # session id shown in the detail table
+            self.expanded = set()  # session ids shown with their requests
+            self.expand_all = False  # `a`: new sessions arrive expanded too
+            self.last_parent = {}  # request row key -> session row key, as drawn
             self.stream = None
             models = self.query_one("#models", DataTable)
             models.border_title = "loaded models"
             models.add_columns(
                 "model", "quant", "size", "context", "phase", "queued", "unload in"
             )
-            sessions = self.query_one("#sessions", DataTable)
-            sessions.border_title = "sessions"
-            for label, key in SESSION_COLUMNS:
-                sessions.add_column(label, key=key)
-            detail = self.query_one("#detail", DataTable)
-            detail.border_title = "requests"
-            for label, key in REQUEST_COLUMNS:
-                detail.add_column(label, key=key)
-            sessions.focus()
+            table = self.table
+            table.border_title = "sessions"
+            for label, key in COLUMNS:
+                table.add_column(label, key=key)
+            table.focus()
             self.refresh_summary()
             self.poll_ps()
             self.set_interval(1.0, self.poll_ps)
@@ -500,6 +503,10 @@ def main():
         def on_unmount(self):
             if self.stream:
                 self.stream.terminate()
+
+        @property
+        def table(self):
+            return self.query_one("#sessions", DataTable)
 
         # -- lms ps --------------------------------------------------------
 
@@ -530,11 +537,8 @@ def main():
                     f"{r['queued']}/{r['parallel']}",
                     fmt_ttl(r),
                 )
-            if not error:
-                for session in set(self.sessions.expire(rows, time.time())):
-                    self.show_session_row(session, new=False)
-                    if session.id == self.selected:
-                        self.show_detail(session)
+            if not error and self.sessions.expire(rows, time.time()):
+                self.rebuild()
             if error:
                 self.sub_title = f"lms ps: {error[:80]}"
             elif not rows:
@@ -562,123 +566,165 @@ def main():
                 session, _, new = self.sessions.start(evt)
             else:
                 session, _, new = self.sessions.finish(evt)
-            table = self.query_one("#sessions", DataTable)
-            # Follow the newest session unless the cursor was moved off it.
-            following = table.row_count == 0 or table.cursor_row == table.row_count - 1
-            self.show_session_row(session, new)
-            live = {str(s.id) for s in self.sessions.sessions}
-            for key in [k for k in table.rows if k.value not in live]:
-                table.remove_row(key)
-            if new and following:
-                table.move_cursor(row=table.row_count - 1)
-                self.show_detail(session)
-            elif session.id == self.selected:
-                self.show_detail(session)
+            if new and self.expand_all:
+                self.expanded.add(session.id)
+            self.rebuild()
             self.refresh_summary()
 
-        def show_session_row(self, session, new):
-            table = self.query_one("#sessions", DataTable)
-            cells = session_cells(session, time.time())
-            if new or str(session.id) not in table.rows:
-                table.add_row(*in_order(cells, SESSION_COLUMNS), key=str(session.id))
-            else:
-                for col, value in cells.items():
-                    table.update_cell(str(session.id), col, value, update_width=True)
+        # -- the sessions table ---------------------------------------------
 
-        def on_data_table_row_highlighted(self, event):
-            if event.data_table.id != "sessions" or event.row_key is None:
-                return
-            sid = int(event.row_key.value)
-            session = next((s for s in self.sessions.sessions if s.id == sid), None)
-            if session:
-                self.show_detail(session)
+        def cursor_key(self):
+            table = self.table
+            if not table.row_count:
+                return None
+            return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
 
-        def show_detail(self, session):
-            self.selected = session.id
-            detail = self.query_one("#detail", DataTable)
-            detail.border_title = f"requests · {session.label or 'session'}"[:100]
-            detail.clear()
-            now = time.time()
-            for request in session.requests:
-                detail.add_row(*in_order(request_cells(request, now), REQUEST_COLUMNS))
-            detail.scroll_end(animate=False)
+        def rebuild(self, cursor=None):
+            """Redraw sessions, with requests under the expanded ones.
 
-        def tick(self):
-            """Refresh the clocks: running/idle times on sessions and requests."""
-            table = self.query_one("#sessions", DataTable)
+            The cursor stays on its row (or moves to `cursor`). If it was on
+            the last row it stays on the last row, so the view follows new
+            activity the way `G` does in view_logs.
+            """
+            table = self.table
+            following = cursor is None and (
+                table.row_count == 0 or table.cursor_row == table.row_count - 1
+            )
+            cursor = cursor or self.cursor_key()
+            parent = {}  # request row key -> its session row key
+            table.clear()
             now = time.time()
             for session in self.sessions.sessions:
-                if str(session.id) in table.rows and session.running():
-                    table.update_cell(
-                        str(session.id), "state", session_state(session, now),
-                        update_width=True,
-                    )
-            selected = next(
-                (s for s in self.sessions.sessions if s.id == self.selected), None
+                skey = f"s{session.id}"
+                open_ = session.id in self.expanded
+                table.add_row(*in_order(session_cells(session, open_, now)), key=skey)
+                if not open_:
+                    continue
+                for n, request in enumerate(session.requests, 1):
+                    last = n == len(session.requests)
+                    rkey = f"r{request.id}"
+                    table.add_row(*in_order(request_cells(request, n, last, now)), key=rkey)
+                    parent[rkey] = skey
+            old_parent, self.last_parent = self.last_parent, parent
+            if not table.row_count:
+                return
+            if following:
+                table.move_cursor(row=table.row_count - 1)
+                return
+            # A request row hidden by a collapse hands the cursor to its session.
+            if cursor not in table.rows and cursor in old_parent:
+                cursor = old_parent[cursor]
+            if cursor in table.rows:
+                table.move_cursor(row=table.get_row_index(cursor))
+
+        def action_toggle(self):
+            key = self.cursor_key()
+            if key is None:
+                return
+            if key.startswith("r"):  # on a request: collapse its session
+                skey = self.last_parent.get(key)
+                if skey:
+                    self.expanded.discard(int(skey[1:]))
+                    self.rebuild(cursor=skey)
+                return
+            self.expanded ^= {int(key[1:])}
+            self.rebuild(cursor=key)
+
+        def action_toggle_all(self):
+            self.expand_all = not self.expand_all
+            self.expanded = (
+                {s.id for s in self.sessions.sessions} if self.expand_all else set()
             )
-            if selected and selected.running():
-                self.show_detail(selected)
+            key = self.cursor_key()
+            if key and key.startswith("r"):
+                key = self.last_parent.get(key)
+            self.rebuild(cursor=key)
+            self.notify("expanded all" if self.expand_all else "collapsed all", timeout=1)
+
+        def action_move(self, delta):
+            table = self.table
+            table.move_cursor(row=max(0, min(table.row_count - 1, table.cursor_row + delta)))
+
+        def action_top(self):
+            self.table.move_cursor(row=0)
+
+        def action_bottom(self):
+            self.table.move_cursor(row=max(0, self.table.row_count - 1))
+
+        def tick(self):
+            """Advance the running timers, in place."""
+            table = self.table
+            now = time.time()
+            for session in self.sessions.sessions:
+                running = session.running()
+                if not running or f"s{session.id}" not in table.rows:
+                    continue
+                table.update_cell(f"s{session.id}", "state",
+                                  running_text(running[0].ts, now), update_width=True)
+                for request in running:
+                    if f"r{request.id}" in table.rows:
+                        table.update_cell(f"r{request.id}", "state",
+                                          running_text(request.ts, now), update_width=True)
             self.refresh_summary()
 
         def refresh_summary(self):
             self.query_one("#summary", Static).update(self.sessions.summary())
 
         def action_clear(self):
-            self.query_one("#sessions", DataTable).clear()
-            detail = self.query_one("#detail", DataTable)
-            detail.clear()
-            detail.border_title = "requests"
+            self.table.clear()
             self.sessions = Sessions()
-            self.selected = None
+            self.expanded = set()
+            self.last_parent = {}
             self.refresh_summary()
 
     def running_text(started, now):
         return Text(f"running {fmt_duration(now - started)}", style="bold yellow")
 
-    def session_state(session, now):
-        running = session.running()
-        # Blank otherwise: LM Studio has no session end, so there's no state
-        # to report between requests beyond "nothing running".
-        return running_text(running[0].ts, now) if running else ""
+    def in_order(cells):
+        return [cells[key] for _, key in COLUMNS]
 
-    def in_order(cells, columns):
-        return [cells[key] for _, key in columns]
+    def clock(ts):
+        return time.strftime("%H:%M:%S", time.localtime(ts))
 
-    def session_cells(session, now):
+    def session_cells(session, open_, now):
         done = session.finished()
         last = done[-1].done if done else None
+        running = session.running()
         return {
-            "started": time.strftime("%H:%M:%S", time.localtime(session.ts)),
+            "time": f"{'▾' if open_ else '▸'} {clock(session.ts)}",
             "model": session.model,
-            "label": session.label,
             "turns": str(len(session.requests)),
             "context": fmt_num(last and last["prompt_tokens"], ","),
             "compl": f"{sum(r.done['completion_tokens'] or 0 for r in done):,}" if done else "",
+            "ttft": "",
             "tok_s": fmt_num(last and last["tok_s"], ".1f"),
-            "state": session_state(session, now),
+            # Blank between requests: LM Studio has no session end, so there's
+            # nothing to report beyond "nothing running".
+            "state": running_text(running[0].ts, now) if running else "",
+            "label": session.label,
         }
 
-    def request_cells(request, now):
+    def request_cells(request, n, last, now):
         evt = request.done
-        if evt is None:
-            state = (Text("no result", style="red") if request.no_result
-                     else running_text(request.ts, now))
-            return {
-                "time": time.strftime("%H:%M:%S", time.localtime(request.ts)),
-                "how": request.how,
-                "state": state,
-                "prompt": "", "compl": "", "ttft": "", "tok_s": "", "stop": "",
-            }
-        ttft = evt["ttft_s"]
+        if evt is None and not request.no_result:
+            state = running_text(request.ts, now)
+        elif request.no_result:
+            state = Text("no result", style="red")
+        else:
+            state = ""
+        evt = evt or {}
+        ttft = evt.get("ttft_s")
+        note = request.how + (f" · {evt['stop']}" if evt.get("stop") else "")
         return {
-            "time": time.strftime("%H:%M:%S", time.localtime(request.ts)),
-            "how": request.how,
-            "state": Text("done", style="green"),
-            "prompt": fmt_num(evt["prompt_tokens"], ","),
-            "compl": fmt_num(evt["completion_tokens"], ","),
+            "time": Text(f"  {'└' if last else '├'} {clock(request.ts)}", style="dim"),
+            "model": "",
+            "turns": Text(f"#{n}", style="dim"),
+            "context": fmt_num(evt.get("prompt_tokens"), ","),
+            "compl": fmt_num(evt.get("completion_tokens"), ","),
             "ttft": "" if ttft is None else f"{ttft:.2f}s",
-            "tok_s": fmt_num(evt["tok_s"], ".1f"),
-            "stop": evt["stop"] or "",
+            "tok_s": fmt_num(evt.get("tok_s"), ".1f"),
+            "state": state,
+            "label": Text(note, style="dim"),
         }
 
     LmsMon().run()
