@@ -306,6 +306,12 @@ It reads the same `lms ps --json` and `lms log stream` sources as
 `lms-monitor/collector.py`, which stores them for Grafana instead. Neither
 gives GPU load; run `macmon` alongside for that.
 
+When `lms` finds no server it starts one, so `lmsmon` only calls it while an
+LM Studio or llmster process is running. Otherwise the header reads "LM
+Studio not running", and the log stream reattaches when LM Studio comes back.
+That way quitting LM Studio, or macOS killing it, doesn't get undone every
+second.
+
 ## Tests
 
 ```sh

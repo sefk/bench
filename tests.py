@@ -468,6 +468,19 @@ class LmsmonTests(unittest.TestCase):
                   "promptTokensCount": 73, "predictedTokensCount": 23},
         "modelIdentifier": "openai/gpt-oss-20b"}})
 
+    def test_server_running(self):
+        app = "/Applications/LM Studio.app/Contents/MacOS/LM Studio\n"
+        helper = ("/Applications/LM Studio.app/Contents/Frameworks/LM Studio "
+                  "Helper.app/Contents/MacOS/LM Studio Helper\n")
+        daemon = "/Users/sefk/.lmstudio/llmster/0.0.18-1/llmster\n"
+        other = "/bin/zsh\n/usr/sbin/cfprefsd\n"
+        self.assertTrue(lmsmon.server_running(other + app))
+        self.assertTrue(lmsmon.server_running(other + daemon))
+        # Helpers outlive a crash for a moment; they can't answer lms.
+        self.assertFalse(lmsmon.server_running(other + helper))
+        self.assertFalse(lmsmon.server_running(other))
+        self.assertFalse(lmsmon.server_running(""))
+
     def test_parse_ps(self):
         ps = json.dumps([{
             "identifier": "openai/gpt-oss-20b", "quantization": {"name": "MXFP4"},

@@ -17,6 +17,10 @@ Two sources, the same ones `lms-monitor/collector.py` stores for Grafana:
   fact. The input event carries the full prompt, which is what groups
   requests into sessions (see "sessions" below).
 
+lms starts LM Studio when it finds no server, so neither command runs unless
+an LM Studio or llmster process is already up. Otherwise the header says "LM
+Studio not running" and the log stream reattaches once it's back.
+
     ./lmsmon
 
 Keys, after datatalk's view_logs: up/down or j/k move, g/G top/bottom (at the
@@ -64,6 +68,11 @@ COLUMNS = [
     ("state", "state"),
     ("session", "label"),  # last, so a narrow terminal clips only this
 ]
+# Executables that serve `lms`: the GUI app, or the headless llmster daemon.
+# lms starts one itself when neither is running, so lmsmon checks first rather
+# than relaunching LM Studio every second after it quits or is killed.
+SERVERS = {"LM Studio", "llmster"}
+STREAM_RETRY = 2.0  # seconds between checks for LM Studio to reattach the log
 SPARK_WIDTH = 40
 SPARK_CHARS = "▁▂▃▄▅▆▇█"
 
@@ -104,6 +113,11 @@ def parse_ps(text, now_ms):
             }
         )
     return rows
+
+
+def server_running(ps_comm):
+    """True if `ps -Ao comm=` output lists LM Studio or llmster."""
+    return any(Path(line.strip()).name in SERVERS for line in ps_comm.splitlines())
 
 
 def parse_event(line):
@@ -420,6 +434,13 @@ def main():
     from textual.theme import BUILTIN_THEMES
     from textual.widgets import DataTable, Footer, Header, Static
 
+    def lms_up():
+        try:
+            ps = subprocess.run(["ps", "-Ao", "comm="], capture_output=True, text=True)
+        except OSError:
+            return True  # can't tell; let lms report the problem
+        return server_running(ps.stdout)
+
     def phase(status):
         label, style = PHASES.get(status, (status, ""))
         return Text(label, style=style)
@@ -484,7 +505,8 @@ def main():
             self.expand_all = False  # `a`: new sessions arrive expanded too
             self.last_parent = {}  # request row key -> session row key, as drawn
             self.stream = None
-            models = self.query_one("#models", DataTable)
+            self.stopping = False
+            models =self.query_one("#models", DataTable)
             models.border_title = "loaded models"
             models.add_columns(
                 "model", "quant", "size", "context", "phase", "queued", "unload in"
@@ -501,6 +523,7 @@ def main():
             threading.Thread(target=self.tail_stream, daemon=True).start()
 
         def on_unmount(self):
+            self.stopping = True
             if self.stream:
                 self.stream.terminate()
 
@@ -514,6 +537,9 @@ def main():
             self.run_worker(self._poll_ps, thread=True, exclusive=True, group="ps")
 
         def _poll_ps(self):
+            if not lms_up():
+                self.call_from_thread(self.show_models, [], None, down=True)
+                return
             try:
                 proc = subprocess.run(
                     ["lms", "ps", "--json"], capture_output=True, text=True, timeout=5
@@ -524,7 +550,7 @@ def main():
                 rows, error = [], str(e)
             self.call_from_thread(self.show_models, rows, error)
 
-        def show_models(self, rows, error):
+        def show_models(self, rows, error, down=False):
             table = self.query_one("#models", DataTable)
             table.clear()
             for r in rows:
@@ -539,7 +565,9 @@ def main():
                 )
             if not error and self.sessions.expire(rows, time.time()):
                 self.rebuild()
-            if error:
+            if down:
+                self.sub_title = "LM Studio not running"
+            elif error:
                 self.sub_title = f"lms ps: {error[:80]}"
             elif not rows:
                 self.sub_title = "no models loaded"
@@ -549,17 +577,24 @@ def main():
         # -- lms log stream ------------------------------------------------
 
         def tail_stream(self):
-            self.stream = subprocess.Popen(
-                ["lms", "log", "stream", "--json", "--stats", "-s", "model"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-            )
-            for line in self.stream.stdout:
-                evt = parse_event(line)
-                if evt:
-                    self.call_from_thread(self.show_event, evt)
+            """Tail the log stream while LM Studio runs; reattach when it's back."""
+            while not self.stopping:
+                if not lms_up():
+                    time.sleep(STREAM_RETRY)
+                    continue
+                self.stream = subprocess.Popen(
+                    ["lms", "log", "stream", "--json", "--stats", "-s", "model"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    bufsize=1,
+                )
+                for line in self.stream.stdout:
+                    evt = parse_event(line)
+                    if evt:
+                        self.call_from_thread(self.show_event, evt)
+                self.stream.wait()
+                time.sleep(STREAM_RETRY)
 
         def show_event(self, evt):
             if evt["kind"] == "input":
