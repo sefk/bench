@@ -36,6 +36,7 @@ import importlib.machinery  # noqa: E402  (needed by load_script above)
 bench = load_script("lmstudio-bench")
 quality = load_script("quality-bench")
 plot = load_script("plot-quality-speed")
+lmsmon = load_script("lmsmon")
 
 
 class WarmUpTests(unittest.TestCase):
@@ -451,6 +452,85 @@ class PlotTests(unittest.TestCase):
             x, _, _ = p["_label"]
             self.assertGreaterEqual(x, left)
             self.assertLessEqual(x + 7.3 * len(p["label"]), right + 1, p["label"])
+
+
+class LmsmonTests(unittest.TestCase):
+    """Parsing in the live monitor, against event shapes captured from
+    LM Studio 0.4's `lms ps --json` and `lms log stream --json --stats`."""
+
+    INPUT = json.dumps({"timestamp": 1792113556449, "data": {
+        "type": "llm.prediction.input", "input": "<|start|>user...",
+        "modelPath": "openai/gpt-oss-20b", "modelIdentifier": "openai/gpt-oss-20b"}})
+    OUTPUT = json.dumps({"timestamp": 1792113562471, "data": {
+        "type": "llm.prediction.output", "output": "Hello, how are you?",
+        "stats": {"stopReason": "eosFound", "tokensPerSecond": 40.95,
+                  "timeToFirstTokenSec": 5.46, "totalTimeSec": 0.561,
+                  "promptTokensCount": 73, "predictedTokensCount": 23},
+        "modelIdentifier": "openai/gpt-oss-20b"}})
+
+    def test_parse_ps(self):
+        ps = json.dumps([{
+            "identifier": "openai/gpt-oss-20b", "quantization": {"name": "MXFP4"},
+            "sizeBytes": 12104314420, "contextLength": 131072, "status": "generating",
+            "queued": 1, "parallel": 4, "ttlMs": 3600000, "lastUsedTime": 1_000_000,
+        }, {
+            "identifier": "qwen/qwen3.6-35b-a3b", "status": "idle", "queued": 0,
+            "parallel": 4, "ttlMs": None, "lastUsedTime": 1_000_000,
+        }])
+        a, b = lmsmon.parse_ps(ps, now_ms=1_000_000 + 600_000)
+        self.assertEqual(a["quant"], "MXFP4")
+        self.assertEqual(a["ttl_s"], 3000.0)
+        self.assertIsNone(b["ttl_s"], "no TTL means never unloads")
+        self.assertEqual(lmsmon.parse_ps("", 0), [], "nothing loaded")
+        self.assertEqual(lmsmon.fmt_ttl(a), "50m00s")
+        self.assertEqual(lmsmon.fmt_ttl(b), "never")
+
+    def test_ttl_while_busy(self):
+        """Mid-request LM Studio drops lastUsedTime; that's busy, not 'never'."""
+        ps = json.dumps([{"identifier": "m", "ttlMs": 3600000, "lastUsedTime": None}])
+        (row,) = lmsmon.parse_ps(ps, now_ms=0)
+        self.assertEqual(lmsmon.fmt_ttl(row), "in use")
+
+    def test_ttl_never_negative(self):
+        m = {"ttlMs": 1000, "lastUsedTime": 0}
+        self.assertEqual(lmsmon.ttl_remaining(m, now_ms=5000), 0.0)
+
+    def test_parse_events(self):
+        self.assertIsNone(lmsmon.parse_event("Streaming logs from LM Studio"))
+        self.assertIsNone(lmsmon.parse_event('{"data": {"type": "llm.other"}}'))
+        start = lmsmon.parse_event(self.INPUT)
+        self.assertEqual((start["kind"], start["model"]), ("input", "openai/gpt-oss-20b"))
+        self.assertAlmostEqual(start["ts"], 1792113556.449)
+        done = lmsmon.parse_event(self.OUTPUT)
+        self.assertEqual(done["kind"], "output")
+        self.assertEqual((done["prompt_tokens"], done["completion_tokens"]), (73, 23))
+        self.assertEqual(done["stop"], "eosFound")
+
+    def test_requests_pair_input_with_output(self):
+        reqs = lmsmon.Requests()
+        rid = reqs.start(lmsmon.parse_event(self.INPUT))
+        self.assertEqual(reqs.in_flight(), 1)
+        self.assertEqual(reqs.finish(lmsmon.parse_event(self.OUTPUT)), (rid, True))
+        self.assertEqual(reqs.in_flight(), 0)
+        self.assertEqual((reqs.count, reqs.prompt_tokens), (1, 73))
+
+    def test_output_without_input_gets_own_row(self):
+        """Started mid-request: the output still counts, under a fresh id."""
+        reqs = lmsmon.Requests()
+        rid, existed = reqs.finish(lmsmon.parse_event(self.OUTPUT))
+        self.assertFalse(existed)
+        self.assertEqual(reqs.start(lmsmon.parse_event(self.INPUT)), rid + 1)
+
+    def test_sparkline(self):
+        self.assertEqual(lmsmon.sparkline([]), "")
+        self.assertEqual(lmsmon.sparkline([0, 50, 100]), "▁▅█")
+        self.assertEqual(len(lmsmon.sparkline(range(1, 100), width=10)), 10)
+
+    def test_formatting(self):
+        self.assertEqual(lmsmon.fmt_bytes(12104314420), "11.3 GB")
+        self.assertEqual(lmsmon.fmt_duration(59), "59s")
+        self.assertEqual(lmsmon.fmt_duration(3000), "50m00s")
+        self.assertEqual(lmsmon.fmt_duration(3700), "1h01m")
 
 
 if __name__ == "__main__":

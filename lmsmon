@@ -1,0 +1,380 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["textual>=0.80"]
+# ///
+"""Live terminal view of what LM Studio is doing.
+
+Two sources, the same ones `lms-monitor/collector.py` stores for Grafana:
+
+  `lms ps --json`, polled every second -- which models are loaded, and each
+  one's phase (idle / prefill / decode), queue depth, and time until its TTL
+  unloads it.
+
+  `lms log stream --json --stats -s model`, tailed -- an `input` event when a
+  prediction starts and an `output` event, with stats, when it finishes. The
+  pair is what lets a request show up as in flight rather than only after the
+  fact.
+
+    ./lmsmon
+
+Keys: q quit, c clear request history.
+
+The parsing below is plain functions with no Textual import, so `tests.py` can
+load this file with the stdlib alone; Textual is only imported in `main`.
+"""
+
+import json
+import time
+
+HISTORY = 500  # request rows kept in the table
+SPARK_WIDTH = 40
+SPARK_CHARS = "▁▂▃▄▅▆▇█"
+
+PHASES = {
+    "idle": ("idle", "dim"),
+    "processingPrompt": ("prefill", "bold yellow"),
+    "generating": ("decode", "bold green"),
+    "loading": ("loading", "cyan"),
+}
+
+
+def ttl_remaining(model, now_ms):
+    """Seconds until LM Studio's idle TTL unloads `model`, or None if no TTL."""
+    last_used = model.get("lastUsedTime")
+    ttl_ms = model.get("ttlMs")
+    if last_used is None or not ttl_ms:
+        return None
+    return max(0.0, (last_used + ttl_ms - now_ms) / 1000.0)
+
+
+def parse_ps(text, now_ms):
+    """`lms ps --json` output -> one dict per loaded model."""
+    models = json.loads(text) if text.strip() else []
+    rows = []
+    for m in models:
+        quant = (m.get("quantization") or {}).get("name") or ""
+        rows.append(
+            {
+                "model": m["identifier"],
+                "quant": quant,
+                "size_bytes": m.get("sizeBytes"),
+                "context": m.get("contextLength"),
+                "status": m.get("status", "?"),
+                "queued": m.get("queued", 0),
+                "parallel": m.get("parallel", 1),
+                "has_ttl": bool(m.get("ttlMs")),
+                "ttl_s": ttl_remaining(m, now_ms),
+            }
+        )
+    return rows
+
+
+def parse_event(line):
+    """One `lms log stream --json` line -> an input/output event, or None.
+
+    Non-JSON lines (the "Streaming logs..." banner) and event types other than
+    prediction input/output are skipped.
+    """
+    line = line.strip()
+    if not line.startswith("{"):
+        return None
+    try:
+        evt = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    data = evt.get("data") or {}
+    kind = data.get("type")
+    ts = evt.get("timestamp")
+    ts = ts / 1000.0 if ts else time.time()
+    model = data.get("modelIdentifier") or data.get("modelPath") or "?"
+    if kind == "llm.prediction.input":
+        return {"kind": "input", "ts": ts, "model": model}
+    if kind != "llm.prediction.output":
+        return None
+    stats = data.get("stats") or {}
+    return {
+        "kind": "output",
+        "ts": ts,
+        "model": model,
+        "tok_s": stats.get("tokensPerSecond"),
+        "ttft_s": stats.get("timeToFirstTokenSec"),
+        "prompt_tokens": stats.get("promptTokensCount"),
+        "completion_tokens": stats.get("predictedTokensCount"),
+        "stop": stats.get("stopReason"),
+    }
+
+
+def sparkline(values, width=SPARK_WIDTH):
+    """The last `width` values as block characters, scaled to their max."""
+    values = [v for v in values if v is not None][-width:]
+    if not values:
+        return ""
+    top = max(values) or 1.0
+    steps = len(SPARK_CHARS) - 1
+    return "".join(SPARK_CHARS[round(v / top * steps)] for v in values)
+
+
+def fmt_bytes(n):
+    if n is None:
+        return ""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return ""
+
+
+def fmt_duration(s):
+    if s is None:
+        return "—"
+    s = int(s)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m{s % 60:02d}s"
+    return f"{s // 3600}h{s % 3600 // 60:02d}m"
+
+
+def fmt_ttl(row):
+    """A model's unload countdown. While a request is running LM Studio
+    reports no lastUsedTime, so a model with a TTL but no countdown is busy."""
+    if not row["has_ttl"]:
+        return "never"
+    if row["ttl_s"] is None:
+        return "in use"
+    return fmt_duration(row["ttl_s"])
+
+
+def fmt_num(v, spec):
+    return "" if v is None else format(v, spec)
+
+
+class Requests:
+    """Request history, pairing each output event with its pending input.
+
+    LM Studio's events carry no request id, so an output is matched to the
+    oldest pending input for the same model. With `parallel` > 1 that can pair
+    the wrong two when requests finish out of order, which only affects which
+    row shows which start time; the stats themselves come whole from the
+    output event. An output with no pending input (the monitor started mid-
+    request) gets a row of its own.
+    """
+
+    def __init__(self):
+        self.next_id = 0
+        self.pending = {}  # model -> [request id, ...] oldest first
+        self.started = {}  # request id -> start ts
+        self.tok_s = []
+        self.count = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+
+    def start(self, evt):
+        rid = self._new_id()
+        self.pending.setdefault(evt["model"], []).append(rid)
+        self.started[rid] = evt["ts"]
+        return rid
+
+    def finish(self, evt):
+        """Record `evt`; return (request id, whether that row already exists)."""
+        queue = self.pending.get(evt["model"])
+        existed = bool(queue)
+        rid = queue.pop(0) if existed else self._new_id()
+        self.started.pop(rid, None)
+        self.count += 1
+        self.prompt_tokens += evt["prompt_tokens"] or 0
+        self.completion_tokens += evt["completion_tokens"] or 0
+        if evt["tok_s"] is not None:
+            self.tok_s.append(evt["tok_s"])
+            del self.tok_s[: -SPARK_WIDTH * 4]
+        return rid, existed
+
+    def _new_id(self):
+        self.next_id += 1
+        return self.next_id
+
+    def in_flight(self):
+        return len(self.started)
+
+    def summary(self):
+        if not self.count:
+            return f"{self.in_flight()} in flight" if self.started else "no requests yet"
+        recent = self.tok_s[-SPARK_WIDTH:]
+        avg = sum(recent) / len(recent) if recent else None
+        last = self.tok_s[-1] if self.tok_s else None
+        return (
+            f"{self.count} done · {self.in_flight()} in flight · "
+            f"{self.prompt_tokens:,} prompt / {self.completion_tokens:,} completion tok · "
+            f"tok/s last {fmt_num(last, '.1f')} avg {fmt_num(avg, '.1f')}  "
+            f"{sparkline(self.tok_s)}"
+        )
+
+
+def main():
+    import subprocess
+    import threading
+
+    from rich.text import Text
+    from textual.app import App, ComposeResult
+    from textual.widgets import DataTable, Footer, Header, Static
+
+    def phase(status):
+        label, style = PHASES.get(status, (status, ""))
+        return Text(label, style=style)
+
+    class LmsMon(App):
+        TITLE = "lmsmon"
+        SUB_TITLE = "LM Studio activity"
+        CSS = """
+        #models { height: auto; max-height: 12; border: round $primary; }
+        #requests { height: 1fr; border: round $primary; }
+        #summary { height: 1; padding: 0 1; }
+        """
+        BINDINGS = [("q", "quit", "Quit"), ("c", "clear", "Clear history")]
+
+        def compose(self) -> ComposeResult:
+            yield Header()
+            yield DataTable(id="models", cursor_type="none", zebra_stripes=True)
+            yield DataTable(id="requests", cursor_type="none", zebra_stripes=True)
+            yield Static(id="summary")
+            yield Footer()
+
+        def on_mount(self):
+            self.requests = Requests()
+            self.stream = None
+            models = self.query_one("#models", DataTable)
+            models.border_title = "loaded models"
+            models.add_columns(
+                "model", "quant", "size", "context", "phase", "queued", "unload in"
+            )
+            reqs = self.query_one("#requests", DataTable)
+            reqs.border_title = "requests"
+            for label, key in [
+                ("time", "time"),
+                ("model", "model"),
+                ("state", "state"),
+                ("prompt", "prompt"),
+                ("compl", "compl"),
+                ("TTFT", "ttft"),
+                ("tok/s", "tok_s"),
+                ("stop", "stop"),
+            ]:
+                reqs.add_column(label, key=key)
+            self.refresh_summary()
+            self.poll_ps()
+            self.set_interval(1.0, self.poll_ps)
+            self.set_interval(1.0, self.tick_in_flight)
+            threading.Thread(target=self.tail_stream, daemon=True).start()
+
+        def on_unmount(self):
+            if self.stream:
+                self.stream.terminate()
+
+        # -- lms ps --------------------------------------------------------
+
+        def poll_ps(self):
+            self.run_worker(self._poll_ps, thread=True, exclusive=True, group="ps")
+
+        def _poll_ps(self):
+            try:
+                proc = subprocess.run(
+                    ["lms", "ps", "--json"], capture_output=True, text=True, timeout=5
+                )
+                rows = parse_ps(proc.stdout, time.time() * 1000)
+                error = None if proc.returncode == 0 else proc.stderr.strip()
+            except Exception as e:
+                rows, error = [], str(e)
+            self.call_from_thread(self.show_models, rows, error)
+
+        def show_models(self, rows, error):
+            table = self.query_one("#models", DataTable)
+            table.clear()
+            for r in rows:
+                table.add_row(
+                    r["model"],
+                    r["quant"],
+                    fmt_bytes(r["size_bytes"]),
+                    f"{r['context']:,}" if r["context"] else "",
+                    phase(r["status"]),
+                    f"{r['queued']}/{r['parallel']}",
+                    fmt_ttl(r),
+                )
+            if error:
+                self.sub_title = f"lms ps: {error[:80]}"
+            elif not rows:
+                self.sub_title = "no models loaded"
+            else:
+                self.sub_title = "LM Studio activity"
+
+        # -- lms log stream ------------------------------------------------
+
+        def tail_stream(self):
+            self.stream = subprocess.Popen(
+                ["lms", "log", "stream", "--json", "--stats", "-s", "model"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+            for line in self.stream.stdout:
+                evt = parse_event(line)
+                if evt:
+                    self.call_from_thread(self.show_event, evt)
+
+        def show_event(self, evt):
+            table = self.query_one("#requests", DataTable)
+            clock = time.strftime("%H:%M:%S", time.localtime(evt["ts"]))
+            if evt["kind"] == "input":
+                rid = self.requests.start(evt)
+                table.add_row(
+                    clock, evt["model"], Text("running", style="bold yellow"),
+                    "", "", "", "", "", key=str(rid),
+                )
+            else:
+                rid, existed = self.requests.finish(evt)
+                cells = {
+                    "state": Text("done", style="green"),
+                    "prompt": fmt_num(evt["prompt_tokens"], ","),
+                    "compl": fmt_num(evt["completion_tokens"], ","),
+                    "ttft": fmt_num(evt["ttft_s"], ".2f") + ("s" if evt["ttft_s"] is not None else ""),
+                    "tok_s": fmt_num(evt["tok_s"], ".1f"),
+                    "stop": evt["stop"] or "",
+                }
+                if existed and str(rid) in table.rows:  # may have aged out
+                    for col, value in cells.items():
+                        table.update_cell(str(rid), col, value, update_width=True)
+                else:
+                    table.add_row(
+                        clock, evt["model"], *cells.values(), key=str(rid)
+                    )
+            while table.row_count > HISTORY:
+                table.remove_row(next(iter(table.rows)))
+            table.scroll_end(animate=False)
+            self.refresh_summary()
+
+        def tick_in_flight(self):
+            table = self.query_one("#requests", DataTable)
+            now = time.time()
+            for rid, started in self.requests.started.items():
+                if str(rid) in table.rows:
+                    table.update_cell(
+                        str(rid), "state",
+                        Text(f"running {fmt_duration(now - started)}", style="bold yellow"),
+                        update_width=True,
+                    )
+            self.refresh_summary()
+
+        def refresh_summary(self):
+            self.query_one("#summary", Static).update(self.requests.summary())
+
+        def action_clear(self):
+            self.query_one("#requests", DataTable).clear()
+            self.requests = Requests()
+            self.refresh_summary()
+
+    LmsMon().run()
+
+
+if __name__ == "__main__":
+    main()

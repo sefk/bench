@@ -273,6 +273,23 @@ What is measured is **SoC package power** (CPU + GPU + ANE). It excludes DRAM,
 PSU losses, and the rest of the machine, so treat it as a floor on wall draw,
 not a substitute for a plug meter.
 
+### Watching LM Studio live: `lmsmon`
+
+```sh
+./lmsmon
+```
+
+A terminal UI (Textual, pulled in by `uv run --script`) showing what LM
+Studio is doing right now: the loaded models with their phase (idle / prefill
+/ decode), queue depth and TTL countdown, and a row per request that appears
+when the request starts and is filled in with prompt/completion tokens, TTFT,
+tok/s and stop reason when it finishes. A summary line keeps totals and a
+tok/s sparkline. `c` clears the history, `q` quits.
+
+It reads the same `lms ps --json` and `lms log stream` sources as
+`lms-monitor/collector.py`, which stores them for Grafana instead. Neither
+gives GPU load; run `macmon` alongside for that.
+
 ## Tests
 
 ```sh
@@ -281,7 +298,8 @@ cd dashboard && uv run manage.py test
 ```
 
 `tests.py` covers the logic that fails quietly rather than loudly: answer
-grading, score aggregation, resume-after-failure, and warm-up convergence. It
+grading, score aggregation, resume-after-failure, warm-up convergence, and
+`lmsmon`'s event parsing (against event shapes captured from LM Studio). It
 touches neither the GPU, LM Studio, nor `fm`.
 
 ## Results layout
