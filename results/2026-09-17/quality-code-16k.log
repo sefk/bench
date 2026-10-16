@@ -393,3 +393,513 @@ qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%            
 qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
 qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
 2026-09-29 00:00:30 queue finished inside the window
+
+=== window 2026-10-01 00:00:04 -> 2026-10-01 06:00:04 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:04 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:07
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-01 00:00:34 queue finished inside the window
+
+=== window 2026-10-02 00:00:05 -> 2026-10-02 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-02 00:00:35 queue finished inside the window
+
+=== window 2026-10-03 00:00:05 -> 2026-10-03 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:07
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-03 00:00:35 queue finished inside the window
+
+=== window 2026-10-04 00:00:05 -> 2026-10-04 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-04 00:00:35 queue finished inside the window
+
+=== window 2026-10-05 00:00:04 -> 2026-10-05 06:00:04 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:04 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-05 00:00:34 queue finished inside the window
+
+=== window 2026-10-06 00:00:04 -> 2026-10-06 06:00:04 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:04 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-06 00:00:34 queue finished inside the window
+
+=== window 2026-10-07 00:00:05 -> 2026-10-07 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-07 00:00:35 queue finished inside the window
+
+=== window 2026-10-08 00:00:05 -> 2026-10-08 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:07 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:07
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-08 00:00:35 queue finished inside the window
+
+=== window 2026-10-09 00:00:05 -> 2026-10-09 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:07
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-09 00:00:35 queue finished inside the window
+
+=== window 2026-10-10 00:00:05 -> 2026-10-10 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:07
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-10 00:00:35 queue finished inside the window
+
+=== window 2026-10-11 00:00:04 -> 2026-10-11 06:00:04 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:04 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-11 00:00:34 queue finished inside the window
+
+=== window 2026-10-12 00:00:05 -> 2026-10-12 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-12 00:00:35 queue finished inside the window
+
+=== window 2026-10-13 00:00:05 -> 2026-10-13 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:06
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-13 00:00:35 queue finished inside the window
+
+=== window 2026-10-14 00:00:00 -> 2026-10-14 06:00:00 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:00 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:01 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:01
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-14 00:00:30 queue finished inside the window
+
+=== window 2026-10-15 00:00:05 -> 2026-10-15 06:00:05 ===
+code quality: 2 variants, budget 16384 -> results/2026-09-17/quality-code-16k.jsonl
+
+=== lmstudio:qwen/qwen3.6-27b@4bit 00:00:05 ===
+
+=== lmstudio:qwen/qwen3.6-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+=== lmstudio:qwen/qwen3.8-27b@4bit 00:00:06 ===
+
+=== lmstudio:qwen/qwen3.8-27b@4bit [no-think] 0 items (175 already done) ===
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+
+code quality complete 00:00:07
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.6-27b@4bit              no-think        -       -   60.6%                    -    0     37
+qwen/qwen3.6-35b-a3b@4bit          no-think        -       -   50.9%                    -    0     42
+qwen/qwen3.6-35b-a3b@8bit          no-think        -       -   54.9%                    -    0     43
+qwen/qwen3.8-27b@4bit              no-think        -       -   53.1%                    -    0     27
+2026-10-15 00:00:35 queue finished inside the window
