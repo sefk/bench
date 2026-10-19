@@ -46,6 +46,21 @@
                     hardware and builds, and say nothing measured about the machine under consideration.</p>
                 <div class="chart-wrap"><canvas id="publishedChart"></canvas></div>
                 <ul class="hint" id="publishedNotes"></ul>
+
+                <h2>Published: local candidates vs Claude on SWE-bench Pro</h2>
+                <p class="speculative-banner">Not run here. Leaderboard numbers; the local models are not
+                    measured on the proposed machine, and a 4-bit build may score lower.</p>
+                <div class="chart-wrap tall-bars"><canvas id="sweChart"></canvas></div>
+                <p class="hint" id="sweNote"></p>
+
+                <h2>Published: speed on an M5 Ultra 256 GB</h2>
+                <div class="table-wrap">
+                    <table id="speedTable">
+                        <thead><tr><th class="text">Model</th><th>Decode tok/s</th><th>Prefill tok/s</th><th>Memory</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <p class="hint" id="speedNote"></p>
             </div>
         </section>
 

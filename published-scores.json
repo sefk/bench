@@ -27,5 +27,109 @@
       "note": "LiveCodeBench v6 as reported by Alibaba; token budget unknown, so not comparable with our 4k/16k runs",
       "source": "https://www.datacamp.com/blog/qwen3-8-flash-next"
     }
+  },
+  "swe_bench_pro": {
+    "benchmark": "SWE-bench Pro",
+    "source": "https://benchlm.ai/benchmarks/swe-bench-pro",
+    "note": "BenchLM leaderboard; setups differ between vendors, so small gaps are directional. Local models are shown at the vendor's/leaderboard's configuration, not as 4-bit builds on the proposed machine. Haiku 5.5 is from CodingFleet. DeepSeek V4 Flash is 56.0 in another source.",
+    "entries": [
+      {
+        "model": "Claude Opus 5.5",
+        "pct": 89.9,
+        "group": "claude"
+      },
+      {
+        "model": "Claude Sonnet 5.5",
+        "pct": 81.3,
+        "group": "claude"
+      },
+      {
+        "model": "Claude Fable 5.1",
+        "pct": 81.2,
+        "group": "claude"
+      },
+      {
+        "model": "Claude Opus 4.8",
+        "pct": 69.2,
+        "group": "claude"
+      },
+      {
+        "model": "Claude Haiku 5.5",
+        "pct": 64.8,
+        "group": "claude",
+        "source": "https://codingfleet.com/blog/swe-bench-pro-leaderboard-2026/"
+      },
+      {
+        "model": "Claude Sonnet 5",
+        "pct": 63.2,
+        "group": "claude"
+      },
+      {
+        "model": "Qwen3.8-Flash-Next",
+        "pct": 62.5,
+        "group": "local"
+      },
+      {
+        "model": "GLM-5.2",
+        "pct": 62.1,
+        "group": "local"
+      },
+      {
+        "model": "Qwen3.8-27B",
+        "pct": 61.7,
+        "group": "local"
+      },
+      {
+        "model": "Qwen3.6-27B",
+        "pct": 53.5,
+        "group": "local"
+      },
+      {
+        "model": "DeepSeek V4 Flash",
+        "pct": 52.6,
+        "group": "local"
+      },
+      {
+        "model": "Qwen3.6-35B-A3B",
+        "pct": 49.5,
+        "group": "local"
+      }
+    ]
+  },
+  "speed": {
+    "source": "https://www.macstories.net/stories/m5-ultra-mac-studio-review-the-dream-mac-for-local-ai-agents/",
+    "note": "Third-party reviews and posts on M5 Ultra 256 GB; runtimes and quants differ. Hosted Claude speed: no figures found.",
+    "rows": [
+      {
+        "model": "Qwen3.8-Flash-Next 4-bit",
+        "decode": "88–108",
+        "prefill": "~2,890 @16K",
+        "memory": "~68 GB (155 GB @256K)"
+      },
+      {
+        "model": "Qwen3.8-Flash-Next 8-bit",
+        "decode": "~87",
+        "prefill": "~2,250 @256K",
+        "memory": "187 GB peak; marginal"
+      },
+      {
+        "model": "Qwen3.8-27B 4-bit (dense)",
+        "decode": "~48",
+        "prefill": "~1,700 @6K",
+        "memory": "n/r"
+      },
+      {
+        "model": "GLM-5.3-Flash 4/8-bit",
+        "decode": "~41",
+        "prefill": "~1,100 @16K",
+        "memory": "n/r"
+      },
+      {
+        "model": "DeepSeek V4 Flash / GPT-OSS 120B",
+        "decode": "no data",
+        "prefill": "no data",
+        "memory": "no data"
+      }
+    ]
   }
 }

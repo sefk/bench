@@ -726,6 +726,64 @@
         }).join("");
     }
 
+    // Claude (hosted, solid) against local candidates (hatched: not run here)
+    // on the one benchmark both sides have published scores for.
+    function renderSweChart() {
+        const swe = (state.published || {}).swe_bench_pro;
+        if (!swe) return;
+        const claude = "#d97706";
+        const local = "#6b7280";
+        const entries = swe.entries.slice().sort((a, b) => b.pct - a.pct);
+        drawChart("sweChart", {
+            type: "bar",
+            data: {
+                labels: entries.map((e) => e.model),
+                datasets: [{
+                    data: entries.map((e) => e.pct),
+                    backgroundColor: entries.map((e) =>
+                        e.group === "claude" ? claude : hatchPattern(local)),
+                    borderColor: entries.map((e) => (e.group === "claude" ? claude : local)),
+                    borderWidth: 2,
+                    borderDash: [5, 4],
+                }],
+            },
+            options: {
+                indexAxis: "y",
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { x: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } } },
+                plugins: {
+                    legend: { display: false },
+                    title: {
+                        display: true, align: "start", color: cssVar("--fg"),
+                        text: "SWE-bench Pro — solid: Claude (hosted); hatched: local candidates, speculative",
+                        font: { size: 14, weight: "600" },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (item) => {
+                                const e = entries[item.dataIndex];
+                                return `${item.parsed.x.toFixed(1)}% — ${e.group === "claude" ? "hosted" : "local candidate, not run here"}`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        document.getElementById("sweNote").innerHTML =
+            `${swe.note} <a href="${swe.source}">source</a>`;
+    }
+
+    function renderSpeedTable() {
+        const speed = (state.published || {}).speed;
+        if (!speed) return;
+        document.querySelector("#speedTable tbody").innerHTML = speed.rows.map((r) =>
+            `<tr><td class="text">${r.model}</td><td>${r.decode}</td><td>${r.prefill}</td><td>${r.memory}</td></tr>`
+        ).join("");
+        document.getElementById("speedNote").innerHTML =
+            `${speed.note} <a href="${speed.source}">source</a>`;
+    }
+
     // ---- speed by dimension tab ----------------------------------------
 
     function buildSeries(rows) {
@@ -912,6 +970,8 @@
         if (state.tab === "quality") {
             renderQualityChart(rows);
             renderPublishedChart(rows);
+            renderSweChart();
+            renderSpeedTable();
         } else if (state.tab === "speed") {
             renderMainChart(rows);
             renderCompareChart(rows);
