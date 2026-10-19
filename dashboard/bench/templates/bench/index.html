@@ -17,6 +17,9 @@
             <button class="tab" data-tab="quality" role="tab">Quality vs speed</button>
             <button class="tab" data-tab="speed" role="tab">Speed by dimension</button>
             <button class="tab" data-tab="table" role="tab">Detailed measures</button>
+            <button class="tab" data-tab="candidates" role="tab">New Mac: candidates</button>
+            <button class="tab" data-tab="vstoday" role="tab">New Mac vs today</button>
+            <button class="tab" data-tab="vsclaude" role="tab">New Mac vs Claude</button>
         </nav>
 
         <section class="tab-content" id="tab-quality" hidden>
@@ -40,28 +43,6 @@
                 LiveCodeBench's 175 it takes about 10.
                 Variants without a quality score are omitted.</p>
 
-            <div id="publishedBlock" hidden>
-                <h2>Speculative: Qwen3.8-Flash-Next on a proposed Mac Studio M5 Ultra</h2>
-                <p class="speculative-banner">Not run here. These scores were published by others, on other
-                    hardware and builds, and say nothing measured about the machine under consideration.</p>
-                <div class="chart-wrap"><canvas id="publishedChart"></canvas></div>
-                <ul class="hint" id="publishedNotes"></ul>
-
-                <h2>Published: local candidates vs Claude on SWE-bench Pro</h2>
-                <p class="speculative-banner">Not run here. Leaderboard numbers; the local models are not
-                    measured on the proposed machine, and a 4-bit build may score lower.</p>
-                <div class="chart-wrap tall-bars"><canvas id="sweChart"></canvas></div>
-                <p class="hint" id="sweNote"></p>
-
-                <h2>Published: speed on an M5 Ultra 256 GB</h2>
-                <div class="table-wrap">
-                    <table id="speedTable">
-                        <thead><tr><th class="text">Model</th><th>Decode tok/s</th><th>Prefill tok/s</th><th>Memory</th></tr></thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <p class="hint" id="speedNote"></p>
-            </div>
         </section>
 
         <section class="tab-content" id="tab-speed" hidden>
@@ -107,6 +88,61 @@
                     <tbody></tbody>
                 </table>
             </div>
+        </section>
+
+        <section class="tab-content" id="tab-candidates" hidden>
+            <p class="speculative-banner">Speculative. Nothing on the three New Mac tabs was run here: every figure is
+                published or estimated by someone else, and estimates are labelled as such.</p>
+            <h2>What fits: Max-128 vs Ultra-256</h2>
+            <div class="table-wrap">
+                <table id="fitTable">
+                    <thead><tr><th class="text">Candidate</th><th class="text">Max-128 (M5 Max, 128 GB)</th>
+                        <th class="text">Ultra-256 (M5 Ultra, 256 GB)</th><th>SWE-bench Pro</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <p class="hint" id="fitNote"></p>
+            <h2>Published speed</h2>
+            <div class="table-wrap">
+                <table id="newSpeedTable">
+                    <thead><tr><th class="text">Candidate</th><th class="text">Machine</th><th>Decode tok/s</th>
+                        <th>Prefill tok/s</th><th class="text">Basis</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="tab-content" id="tab-vstoday" hidden>
+            <p class="speculative-banner">Speculative. Today's models are measured on this M1 Max; the candidates are
+                published or estimated figures for machines we do not own. Quality is SWE-bench Pro for both.</p>
+            <div class="controls">
+                <div class="control">
+                    <label for="tSpeed">Speed measure</label>
+                    <select id="tSpeed"></select>
+                </div>
+                <div class="control">
+                    <label for="tSize">Today's prompt size</label>
+                    <select id="tSize"></select>
+                </div>
+            </div>
+            <div class="chart-wrap tall"><canvas id="todayChart"></canvas></div>
+            <p class="hint" id="todayNote"></p>
+            <h2>Measured here vs published for Qwen3.8-Flash-Next</h2>
+            <div class="chart-wrap"><canvas id="publishedChart"></canvas></div>
+            <ul class="hint" id="publishedNotes"></ul>
+        </section>
+
+        <section class="tab-content" id="tab-vsclaude" hidden>
+            <p class="speculative-banner">Speculative. Claude figures are hosted-API numbers from other people's runs;
+                candidate figures are published or estimated for machines we do not own.</p>
+            <div class="controls">
+                <div class="control">
+                    <label for="cSpeed">Speed measure</label>
+                    <select id="cSpeed"></select>
+                </div>
+            </div>
+            <div class="chart-wrap tall"><canvas id="claudeChart"></canvas></div>
+            <p class="hint" id="claudeNote"></p>
         </section>
     </main>
 </div>

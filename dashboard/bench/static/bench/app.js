@@ -8,7 +8,7 @@
         "version", "arch", "quant", "precision", "runtime", "date",
     ];
     const SIZE_ORDER = ["short", "1000tok", "4000tok", "16000tok"];
-    const TABS = ["quality", "speed", "table"];
+    const TABS = ["quality", "speed", "table", "candidates", "vstoday", "vsclaude"];
     const PALETTE = [
         "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed",
         "#0891b2", "#db2777", "#65a30d", "#ea580c", "#4f46e5",
@@ -18,6 +18,8 @@
     // Measures offered on the quality tab's Y axis. Quality is scored once per
     // model, not per prompt size, so it has no place on the speed tab.
     const QUALITY_SPEED_MEASURES = ["gen_tps", "prefill_tps", "total_s", "tokens_per_wh"];
+    // The only speed measures published for the machines under consideration.
+    const NEW_MAC_SPEED = ["gen_tps", "prefill_tps"];
     // Rates start at zero: a non-zero origin exaggerates gaps.
     const RATE_MEASURES = ["gen_tps", "prefill_tps", "tokens_per_wh"];
 
@@ -60,6 +62,10 @@
         seriesBy: "variant",
         logY: false,
         compareSize: "4000tok",
+        // new-mac tabs
+        tSpeed: "gen_tps",
+        tSize: "16000tok",
+        cSpeed: "gen_tps",
         // table tab
         sortKey: "date",
         sortAsc: true,
@@ -112,7 +118,7 @@
 
     // ---- URL state -----------------------------------------------------
 
-    const URL_KEYS = ["tab", "qSize", "qSpeed", "qQuality", "measure", "seriesBy", "compareSize"];
+    const URL_KEYS = ["tab", "qSize", "qSpeed", "qQuality", "measure", "seriesBy", "compareSize", "tSpeed", "tSize", "cSpeed"];
 
     // Rebuilds the whole view from the URL, falling back to defaults for
     // anything it does not mention -- so Back to a URL without a parameter
@@ -139,6 +145,7 @@
         const fallbackSize = sizes.includes("4000tok") ? "4000tok" : sizes[0];
         if (!sizes.includes(state.qSize)) state.qSize = fallbackSize;
         if (!sizes.includes(state.compareSize)) state.compareSize = fallbackSize;
+        if (!sizes.includes(state.tSize)) state.tSize = fallbackSize;
     }
 
     // Only non-default selections are written, which keeps shared links short.
@@ -170,14 +177,14 @@
     // ---- data load -------------------------------------------------------
 
     async function loadData() {
-        const [metaResp, rowsResp, pubResp] = await Promise.all([
+        const [metaResp, rowsResp, newMacResp] = await Promise.all([
             fetch("/api/meta/"),
             fetch("/api/rows/"),
-            fetch("/api/published/"),
+            fetch("/api/new-mac/"),
         ]);
         state.meta = await metaResp.json();
         state.rows = (await rowsResp.json()).rows;
-        state.published = await pubResp.json();
+        state.newMac = await newMacResp.json();
         readStateFromURL();
     }
 
@@ -304,6 +311,11 @@
         bindSelect(fillSelect("qQuality",
             asOptions(measures.filter((m) => m.key.startsWith("quality_"))),
             state.qQuality), "qQuality");
+
+        const newMacSpeed = asOptions(measures.filter((m) => NEW_MAC_SPEED.includes(m.key)));
+        bindSelect(fillSelect("tSpeed", newMacSpeed, state.tSpeed), "tSpeed");
+        bindSelect(fillSelect("tSize", sizeOptions, state.tSize), "tSize");
+        bindSelect(fillSelect("cSpeed", newMacSpeed, state.cSpeed), "cSpeed");
 
         bindSelect(fillSelect("measure",
             asOptions(measures.filter((m) => !m.key.startsWith("quality_"))),
@@ -606,12 +618,198 @@
         });
     }
 
-    // ---- speculative published scores ----------------------------------------
+    // ---- New Mac evaluation tabs ---------------------------------------------
     //
-    // Scores for a machine we do not own, from other people's runs. Drawn in
-    // their own chart, hatched and dashed, beside the measured variants so the
-    // two can be compared without ever sharing a speed axis (there is no
-    // measured speed for the proposed machine).
+    // Everything here is for machines we do not own, so none of it comes from
+    // `results/`: figures other people published or estimated, plus our own
+    // measurements of today's M1 Max for reference. Quality on the two
+    // comparison charts is SWE-bench Pro, the one benchmark with published
+    // scores for the local candidates, today's models and Claude alike.
+    // Speculative points are drawn hollow; measured ones are filled.
+
+    const MACHINE_COLORS = {
+        today: "#2b7bba", ultra256: "#7c3aed", max128: "#0d9488", claude: "#d97706",
+    };
+    const SPEED_FIELD = { gen_tps: "decode", prefill_tps: "prefill" };
+    const FIT_LABELS = { fits: "fits", tight: "tight", no: "does not fit", unverified: "unverified" };
+
+    function newMac() {
+        return state.newMac && state.newMac.candidates ? state.newMac : null;
+    }
+
+    function escapeHtml(text) {
+        return String(text).replace(/[&<>"]/g, (c) =>
+            ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+
+    function renderCandidatesTab() {
+        const nm = newMac();
+        if (!nm) return;
+        const chip = (f) => `<span class="fit fit-${f.status}" title="${escapeHtml(f.why)}">` +
+            `${FIT_LABELS[f.status]}</span> <span class="why">${escapeHtml(f.why)}</span>`;
+        document.querySelector("#fitTable tbody").innerHTML = nm.candidates.map((c) =>
+            `<tr><td class="text">${escapeHtml(c.name)}</td>` +
+            `<td class="text">${chip(c.fit.max128)}</td>` +
+            `<td class="text">${chip(c.fit.ultra256)}</td>` +
+            `<td>${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td></tr>`
+        ).join("");
+        const m = nm.machines;
+        document.getElementById("fitNote").innerHTML =
+            `Max-128: ${escapeHtml(m.max128.name)}, ${escapeHtml(m.max128.bandwidth)}, ${escapeHtml(m.max128.gpu)}. ` +
+            `Ultra-256: ${escapeHtml(m.ultra256.name)}, ${escapeHtml(m.ultra256.bandwidth)}, ${escapeHtml(m.ultra256.gpu)}. ` +
+            `Usable for one model: ~${m.max128.usable_gb} GB vs ~${m.ultra256.usable_gb} GB ` +
+            `(${escapeHtml(m.max128.usable_basis)}). SWE-bench Pro: ${escapeHtml(nm.swe_bench_pro_note)} ` +
+            `<a href="${nm.swe_bench_pro_source}">source</a>`;
+
+        const rows = [];
+        for (const c of nm.candidates) {
+            for (const key of ["max128", "ultra256"]) {
+                const sp = c.speed[key];
+                if (!sp) continue;
+                rows.push(`<tr><td class="text">${escapeHtml(c.name)}</td>` +
+                    `<td class="text">${m[key].label}</td>` +
+                    `<td>${fmt(sp.decode)}</td><td>${fmt(sp.prefill)}</td>` +
+                    `<td class="text basis"><b>${sp.kind}</b> &mdash; ${escapeHtml(sp.note)} ` +
+                    `<a href="${sp.source}">source</a></td></tr>`);
+            }
+        }
+        document.querySelector("#newSpeedTable tbody").innerHTML = rows.join("");
+    }
+
+    // One scatter, quality (SWE-bench Pro) on Y, speed on X. `groups` is a list
+    // of {label, color, points:[{x, y, label, hollow, lines}]}.
+    function drawNewMacScatter(canvasId, speedKey, title, subtitle, groups) {
+        const datasets = groups.filter((g) => g.points.length).map((g) => ({
+            label: g.label,
+            data: g.points.map((p) => ({ ...p, lo: null, hi: null })),
+            backgroundColor: g.points.map((p) => (p.hollow ? (cssVar("--bg") || "#fff") : g.color)),
+            borderColor: g.color,
+            borderWidth: 2,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+        }));
+        const pts = datasets.flatMap((d) => d.data);
+        const xb = pts.length ? niceBounds(0, Math.max(...pts.map((p) => p.x))) : { min: 0, max: 1, step: 0.2 };
+        const yb = pts.length ? niceBounds(Math.min(...pts.map((p) => p.y)), Math.max(...pts.map((p) => p.y))) : { min: 0, max: 100, step: 10 };
+        drawChart(canvasId, {
+            type: "scatter",
+            data: { datasets },
+            plugins: [qualityDecorations],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { right: 8 } },
+                scales: {
+                    x: { min: 0, max: xb.max, ticks: { stepSize: xb.step }, title: { display: true, text: measureLabel(speedKey) } },
+                    y: {
+                        min: Math.max(0, yb.min), max: Math.min(100, yb.max),
+                        ticks: { stepSize: yb.step, callback: (v) => `${v}%` },
+                        title: { display: true, text: "SWE-bench Pro (% resolved), published" },
+                    },
+                },
+                plugins: {
+                    title: { display: true, align: "start", text: title, color: cssVar("--fg"), font: { size: 14, weight: "600" } },
+                    subtitle: { display: true, align: "start", text: subtitle, padding: { bottom: 8 } },
+                    legend: { position: "top", align: "start", labels: { usePointStyle: true } },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => items[0].raw.label,
+                            label: (item) => item.raw.lines,
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    // Candidate points on one machine, for the chosen speed measure.
+    function candidatePointsFor(machineKey, speedKey) {
+        const field = SPEED_FIELD[speedKey];
+        const machine = newMac().machines[machineKey];
+        const points = [];
+        for (const c of newMac().candidates) {
+            const sp = c.speed[machineKey];
+            if (!sp || !isNum(sp[field]) || !isNum(c.swe_bench_pro)) continue;
+            points.push({
+                x: sp[field], y: c.swe_bench_pro,
+                label: `${c.name.replace(" (dense)", "")} @ ${machine.label}${sp.kind === "estimate" ? " (est.)" : ""}`,
+                hollow: sp.kind !== "measured",
+                lines: [
+                    `SWE-bench Pro: ${c.swe_bench_pro}% (published)`,
+                    `${measureLabel(speedKey)}: ${fmt(sp[field])} on ${machine.label} — ${sp.kind}`,
+                    sp.note,
+                ],
+            });
+        }
+        return points;
+    }
+
+    function renderTodayChart(rows) {
+        const nm = newMac();
+        if (!nm) return;
+        const speedKey = state.tSpeed;
+        const todayPoints = [];
+        const sweByBase = nm.today.swe_bench_pro;
+        for (const row of latestPerVariant(rows.filter((r) => r.size === state.tSize))) {
+            const swe = sweByBase[String(row.variant).split("@")[0]];
+            if (!isNum(swe) || !isNum(row[speedKey])) continue;
+            todayPoints.push({
+                x: row[speedKey], y: swe,
+                label: shortLabel(row),
+                hollow: false,
+                lines: [
+                    `SWE-bench Pro: ${swe}% (published, full precision)`,
+                    `${measureLabel(speedKey)}: ${fmt(row[speedKey])} at ${state.tSize}, measured here`,
+                    `build: ${row.variant}, run ${row.date}`,
+                ],
+            });
+        }
+        drawNewMacScatter("todayChart", speedKey,
+            `Candidates vs today — ${measureLabel(speedKey).toLowerCase()}`,
+            "Up and to the right is better. Filled: measured (today, or a published measurement). Hollow: estimate.",
+            [
+                { label: "Today: M1 Max 64 GB (measured here)", color: MACHINE_COLORS.today, points: todayPoints },
+                { label: "Max-128 (estimate)", color: MACHINE_COLORS.max128, points: candidatePointsFor("max128", speedKey) },
+                { label: "Ultra-256 (published)", color: MACHINE_COLORS.ultra256, points: candidatePointsFor("ultra256", speedKey) },
+            ]);
+        document.getElementById("todayNote").textContent =
+            `${nm.today.note} Candidate speeds are at ~16K context where reported (see the candidates tab). ` +
+            "Several candidates have no SWE-bench Pro score or no speed figure and are omitted.";
+    }
+
+    function renderClaudeChart() {
+        const nm = newMac();
+        if (!nm) return;
+        const speedKey = state.cSpeed;
+        const claudePoints = [];
+        if (speedKey === "gen_tps") {
+            for (const m of nm.claude.models) {
+                claudePoints.push({
+                    x: m.decode, y: m.swe_bench_pro, label: m.name, hollow: false,
+                    lines: [
+                        `SWE-bench Pro: ${m.swe_bench_pro}%`,
+                        `Decode: ${m.decode} tok/s at ${m.effort} reasoning effort (includes thinking tokens)`,
+                    ],
+                });
+            }
+        }
+        drawNewMacScatter("claudeChart", speedKey,
+            `Candidates vs Claude — ${measureLabel(speedKey).toLowerCase()}`,
+            speedKey === "gen_tps"
+                ? "Up and to the right is better. Hollow: estimate. Claude speeds are hosted-API output rates."
+                : "No prefill figures exist for hosted Claude, so only the candidates are shown.",
+            [
+                { label: "Claude (hosted, published)", color: MACHINE_COLORS.claude, points: claudePoints },
+                { label: "Max-128 (estimate)", color: MACHINE_COLORS.max128, points: candidatePointsFor("max128", speedKey) },
+                { label: "Ultra-256 (published)", color: MACHINE_COLORS.ultra256, points: candidatePointsFor("ultra256", speedKey) },
+            ]);
+        document.getElementById("claudeNote").innerHTML =
+            `${escapeHtml(nm.claude.note)} <a href="${nm.claude.speed_source}">speed source</a>`;
+    }
+
+    // Our measured models beside Qwen3.8-Flash-Next's published scores. The
+    // published bars are hatched and dashed: another person's run, other
+    // hardware, no interval.
 
     const PUBLISHED_TASKS = [
         { key: "gsm8k", label: "GSM8K", measured: ["quality_gsm8k"] },
@@ -642,13 +840,9 @@
     }
 
     function renderPublishedChart(rows) {
-        const pub = state.published;
-        const block = document.getElementById("publishedBlock");
-        if (!pub || !pub.scores) {
-            block.hidden = true;
-            return;
-        }
-        block.hidden = false;
+        const nm = newMac();
+        const pub = nm && nm.published_scores;
+        if (!pub) return;
 
         const measured = latestPerVariant(rows).filter((r) =>
             PUBLISHED_TASKS.some((t) => t.measured.some((k) => isNum(r[k]))));
@@ -689,25 +883,20 @@
                 },
                 plugins: {
                     title: {
-                        display: true,
-                        align: "start",
-                        text: `${pub.subject} — SPECULATIVE on ${pub.machine}`,
+                        display: true, align: "start", color: cssVar("--fg"),
+                        text: `${pub.subject} — SPECULATIVE: published elsewhere, not run on any machine here`,
                         font: { size: 14, weight: "600" },
-                        color: cssVar("--fg"),
                     },
                     subtitle: {
-                        display: true,
-                        align: "start",
+                        display: true, align: "start", padding: { bottom: 8 },
                         text: "Solid bars: measured here. Hatched bar: published elsewhere, no interval.",
-                        padding: { bottom: 8 },
                     },
                     legend: { position: "top", align: "start", labels: { usePointStyle: true } },
                     tooltip: {
                         callbacks: {
                             label: (item) => {
                                 const pct = `${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`;
-                                const task = PUBLISHED_TASKS[item.dataIndex];
-                                const s = pub.scores[task.key];
+                                const s = pub.scores[PUBLISHED_TASKS[item.dataIndex].key];
                                 if (!item.dataset.borderDash || !s) return pct;
                                 return [pct, `mode: ${s.mode}`, `build: ${s.quant}`,
                                     `hardware: ${s.hardware}`, s.note];
@@ -721,67 +910,9 @@
         document.getElementById("publishedNotes").innerHTML = PUBLISHED_TASKS.map((t) => {
             const s = pub.scores[t.key];
             if (!s) return "";
-            return `<li><b>${t.label} ${s.pct}%</b> — ${s.mode}; ${s.quant}; ${s.hardware}; ${s.note}. ` +
-                `<a href="${s.source}">source</a></li>`;
+            return `<li><b>${t.label} ${s.pct}%</b> — ${escapeHtml(s.mode)}; ${escapeHtml(s.quant)}; ` +
+                `${escapeHtml(s.hardware)}; ${escapeHtml(s.note)}. <a href="${s.source}">source</a></li>`;
         }).join("");
-    }
-
-    // Claude (hosted, solid) against local candidates (hatched: not run here)
-    // on the one benchmark both sides have published scores for.
-    function renderSweChart() {
-        const swe = (state.published || {}).swe_bench_pro;
-        if (!swe) return;
-        const claude = "#d97706";
-        const local = "#6b7280";
-        const entries = swe.entries.slice().sort((a, b) => b.pct - a.pct);
-        drawChart("sweChart", {
-            type: "bar",
-            data: {
-                labels: entries.map((e) => e.model),
-                datasets: [{
-                    data: entries.map((e) => e.pct),
-                    backgroundColor: entries.map((e) =>
-                        e.group === "claude" ? claude : hatchPattern(local)),
-                    borderColor: entries.map((e) => (e.group === "claude" ? claude : local)),
-                    borderWidth: 2,
-                    borderDash: [5, 4],
-                }],
-            },
-            options: {
-                indexAxis: "y",
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { x: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } } },
-                plugins: {
-                    legend: { display: false },
-                    title: {
-                        display: true, align: "start", color: cssVar("--fg"),
-                        text: "SWE-bench Pro — solid: Claude (hosted); hatched: local candidates, speculative",
-                        font: { size: 14, weight: "600" },
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (item) => {
-                                const e = entries[item.dataIndex];
-                                return `${item.parsed.x.toFixed(1)}% — ${e.group === "claude" ? "hosted" : "local candidate, not run here"}`;
-                            },
-                        },
-                    },
-                },
-            },
-        });
-        document.getElementById("sweNote").innerHTML =
-            `${swe.note} <a href="${swe.source}">source</a>`;
-    }
-
-    function renderSpeedTable() {
-        const speed = (state.published || {}).speed;
-        if (!speed) return;
-        document.querySelector("#speedTable tbody").innerHTML = speed.rows.map((r) =>
-            `<tr><td class="text">${r.model}</td><td>${r.decode}</td><td>${r.prefill}</td><td>${r.memory}</td></tr>`
-        ).join("");
-        document.getElementById("speedNote").innerHTML =
-            `${speed.note} <a href="${speed.source}">source</a>`;
     }
 
     // ---- speed by dimension tab ----------------------------------------
@@ -969,9 +1100,13 @@
         const rows = filteredRows();
         if (state.tab === "quality") {
             renderQualityChart(rows);
+        } else if (state.tab === "candidates") {
+            renderCandidatesTab();
+        } else if (state.tab === "vstoday") {
+            renderTodayChart(rows);
             renderPublishedChart(rows);
-            renderSweChart();
-            renderSpeedTable();
+        } else if (state.tab === "vsclaude") {
+            renderClaudeChart();
         } else if (state.tab === "speed") {
             renderMainChart(rows);
             renderCompareChart(rows);

@@ -2,7 +2,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 
-from .loader import build_meta, load_published, load_rows
+from .loader import build_meta, load_new_mac, load_rows
 
 
 def index(request):
@@ -14,8 +14,8 @@ def api_rows(request):
     return JsonResponse({"rows": rows})
 
 
-def api_published(request):
-    return JsonResponse(load_published())
+def api_new_mac(request):
+    return JsonResponse(load_new_mac())
 
 
 def api_meta(request):

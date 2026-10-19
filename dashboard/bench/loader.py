@@ -62,13 +62,14 @@ def _load_model_facts(path: Path = MODEL_FACTS_PATH) -> dict[str, dict]:
 
 MODEL_FACTS = _load_model_facts()
 
-# Scores other people measured, on hardware we do not own. Kept out of the
-# result rows on purpose: they have no throughput, no sample we can vouch for,
-# and must never be joined onto a measured variant.
-PUBLISHED_SCORES_PATH = Path(__file__).resolve().parents[2] / "published-scores.json"
+# Everything about the machines under consideration and the hosted models:
+# figures other people measured or estimated, on hardware we do not own. Kept
+# out of the result rows on purpose -- no sample we can vouch for, and never to
+# be joined onto a measured variant.
+NEW_MAC_PATH = Path(__file__).resolve().parents[2] / "new-mac-evaluation.json"
 
 
-def load_published(path: Path = PUBLISHED_SCORES_PATH) -> dict:
+def load_new_mac(path: Path = NEW_MAC_PATH) -> dict:
     try:
         with path.open() as fh:
             data = json.load(fh)

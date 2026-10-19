@@ -393,16 +393,22 @@ class ViewTests(SimpleTestCase):
         data = response.json()
         self.assertEqual(len(data["rows"]), 1)
 
-    def test_api_published_is_unmeasured_and_sourced(self):
-        data = self.client.get("/api/published/").json()
-        self.assertEqual(set(data["scores"]), {"gsm8k", "mmlu", "code"})
-        for score in data["scores"].values():
-            self.assertTrue(score["source"].startswith("https://"))
+    def test_api_new_mac_is_sourced_and_unmeasured(self):
+        data = self.client.get("/api/new-mac/").json()
+        self.assertEqual(set(data["machines"]), {"max128", "ultra256"})
+        for cand in data["candidates"]:
+            for machine, sp in cand["speed"].items():
+                self.assertIn(sp["kind"], {"measured", "estimate"}, cand["id"])
+                self.assertTrue(sp["source"].startswith("https://"), cand["id"])
+            self.assertEqual(set(cand["fit"]), {"max128", "ultra256"}, cand["id"])
+        for score in data["published_scores"]["scores"].values():
             self.assertNotIn("ci95", score)
+        for model in data["claude"]["models"]:
+            self.assertIn("decode", model)
 
-    def test_api_published_missing_file_is_empty(self):
-        from .loader import load_published
-        self.assertEqual(load_published(self.results_dir / "nope.json"), {})
+    def test_new_mac_missing_file_is_empty(self):
+        from .loader import load_new_mac
+        self.assertEqual(load_new_mac(self.results_dir / "nope.json"), {})
 
     def test_api_meta_ok(self):
         response = self.client.get("/api/meta/")

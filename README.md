@@ -387,22 +387,30 @@ receiver, so the server exits with "port already in use". Port 8000 is left
 alone because other local servers tend to sit there. Run
 `uv run manage.py test` to run its test suite.
 
-The page has three tabs, all driven by the same filter sidebar:
+The page has six tabs, driven by the same filter sidebar (the last three use it only for today's measured models):
 
 1. **Quality vs speed** — the interactive version of `plot-quality-speed`: one
    point per variant (its most recent run), a speed measure at one prompt size
    on X, a quality score (composite, GSM8K, MMLU or LiveCodeBench) with its 95%
    interval on Y. The axes are the other way round from the SVG so the chart
-   runs tall, which fits a document column. Below it, a second chart sets
-   scores *published by others* for a machine we do not own (currently
-   Qwen3.8-Flash-Next on a proposed M5 Ultra) beside the measured variants,
-   drawn hatched and labelled speculative. They come from
-   `published-scores.json`, never from `results/`, carry no interval, and have
-   no speed position because nothing was measured.
+   runs tall, which fits a document column.
 2. **Speed by dimension** — a speed measure across prompt sizes, with series
    by variant, precision, quant, arch, version, runtime or date, plus a bar
    comparison at one size.
 3. **Detailed measures** — the sortable table of every row.
+4. **New Mac: candidates** — which models fit an M5 Max with 128 GB
+   ("Max-128") and an M5 Ultra with 256 GB ("Ultra-256"), with the published
+   speed figures behind each.
+5. **New Mac vs today** — SWE-bench Pro against decode or prefill speed:
+   today's models (our measured speed on this M1 Max) beside the candidates.
+6. **New Mac vs Claude** — the same chart with Claude's hosted speed and score.
+
+The last three tabs are **speculative**: none of it was run here. They read
+`new-mac-evaluation.json`, never `results/`; every figure there carries its
+source, and each speed is marked `measured` (someone's run on that machine) or
+`estimate` (a third party's estimate, or derived from other figures). Estimates
+are drawn hollow. SWE-bench Pro is the quality axis because it is the one
+benchmark with published scores for the candidates, today's models and Claude.
 
 Every selection — tab, controls, filters, table sort — is kept in the URL,
 so a view can be bookmarked or linked, and Back/Forward step between views.

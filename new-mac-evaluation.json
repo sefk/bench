@@ -1,0 +1,169 @@
+{
+  "_about": "Inputs to the dashboard's 'New Mac' tabs. NOTHING here was measured on this machine or on the proposed ones: every figure is published by someone else, estimated by a third party, or (where kind is 'derived') worked out from other published figures. Read by dashboard/bench/loader.py.",
+  "machines": {
+    "max128": {
+      "label": "Max-128",
+      "name": "M5 Max, 128 GB",
+      "bandwidth": "460-614 GB/s (614 with the 40-core GPU)",
+      "gpu": "up to 40 cores",
+      "usable_gb": 100,
+      "usable_basis": "assumption: ~78% of RAM, the share oMLX allows one model on the 256 GB machine (~200 GB)",
+      "source": "https://www.macrumors.com/guide/m5-max-vs-m5-ultra/"
+    },
+    "ultra256": {
+      "label": "Ultra-256",
+      "name": "M5 Ultra, 256 GB",
+      "bandwidth": "1.2 TB/s",
+      "gpu": "up to 80 cores",
+      "usable_gb": 200,
+      "usable_basis": "oMLX allows ~200 GB for one model (MacStories)",
+      "source": "https://www.macrumors.com/guide/m5-max-vs-m5-ultra/"
+    }
+  },
+  "swe_bench_pro_note": "BenchLM leaderboard; setups differ between vendors, so small gaps are directional. Scores are the vendor/leaderboard configuration, not a 4-bit build on the machine in question. OpenAI's July 2026 audit estimated ~30% of the public split is broken.",
+  "swe_bench_pro_source": "https://benchlm.ai/benchmarks/swe-bench-pro",
+  "candidates": [
+    {
+      "id": "flash-next-4bit",
+      "name": "Qwen3.8-Flash-Next 4-bit",
+      "swe_bench_pro": 62.5,
+      "fit": {
+        "max128": {"status": "fits", "why": "~68 GB at moderate context; peak 155 GB at 256K, so long contexts will not fit in 128 GB"},
+        "ultra256": {"status": "fits", "why": "155 GB peak even at 256K"}
+      },
+      "speed": {
+        "ultra256": {"decode": 87.8, "prefill": 2887, "kind": "measured", "note": "oMLX, 16K prompt (MacStories)", "source": "https://www.macstories.net/stories/m5-ultra-mac-studio-review-the-dream-mac-for-local-ai-agents/"},
+        "max128": {"decode": 49, "prefill": 1443, "kind": "estimate", "note": "decode: LLMCheck's estimate for Q4; prefill: derived as the Ultra figure x 40/80 GPU cores, found in no source", "source": "https://llmcheck.net/best-llm/macbook-pro-m5-max-128gb/"}
+      }
+    },
+    {
+      "id": "flash-next-8bit",
+      "name": "Qwen3.8-Flash-Next 8-bit",
+      "swe_bench_pro": 62.5,
+      "fit": {
+        "max128": {"status": "no", "why": "187 GB peak at 256K"},
+        "ultra256": {"status": "tight", "why": "187 GB peak; oMLX refused to load 8-bit in one test and macOS killed a 6-bit run at 177 GB"}
+      },
+      "speed": {
+        "ultra256": {"decode": 87, "prefill": 2252, "kind": "measured", "note": "prefill measured at 256K, not 16K", "source": "https://www.macstories.net/stories/m5-ultra-mac-studio-review-the-dream-mac-for-local-ai-agents/"}
+      }
+    },
+    {
+      "id": "qwen3.8-27b",
+      "name": "Qwen3.8-27B 4-bit (dense)",
+      "swe_bench_pro": 61.7,
+      "fit": {
+        "max128": {"status": "fits", "why": "8-bit or BF16 fits in 96 GB (MacStories tier table)"},
+        "ultra256": {"status": "fits", "why": "fits with room to spare"}
+      },
+      "speed": {
+        "ultra256": {"decode": 48, "prefill": 1701, "kind": "measured", "note": "6K prompt (MacStories); Tom's Hardware and Ars Technica report 46-50 decode", "source": "https://www.macstories.net/stories/m5-ultra-mac-studio-review-the-dream-mac-for-local-ai-agents/"},
+        "max128": {"decode": 29, "prefill": 850, "kind": "estimate", "note": "decode: LLMCheck's estimate for Q4; prefill: derived as the Ultra figure x 40/80 GPU cores, found in no source", "source": "https://llmcheck.net/best-llm/macbook-pro-m5-max-128gb/"}
+      }
+    },
+    {
+      "id": "gpt-oss-120b",
+      "name": "GPT-OSS 120B",
+      "swe_bench_pro": null,
+      "fit": {
+        "max128": {"status": "fits", "why": "~65 GB (ModelFit); 96 GB tier per MacStories"},
+        "ultra256": {"status": "fits", "why": "~65 GB"}
+      },
+      "speed": {
+        "ultra256": {"decode": 43, "prefill": null, "kind": "estimate", "note": "ModelFit's estimate, not a measurement", "source": "https://modelfit.io/mac-studio/m5/"}
+      }
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash 4/8-bit",
+      "swe_bench_pro": null,
+      "fit": {
+        "max128": {"status": "unverified", "why": "memory use was not reported on any machine"},
+        "ultra256": {"status": "fits", "why": "MacStories says it fits 256 GB in MLX 4/8-bit"}
+      },
+      "speed": {
+        "ultra256": {"decode": 41, "prefill": 1107, "kind": "measured", "note": "decode includes reasoning tokens; 16K prompt", "source": "https://www.macstories.net/stories/m5-ultra-mac-studio-review-the-dream-mac-for-local-ai-agents/"}
+      }
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash 4-bit",
+      "swe_bench_pro": 52.6,
+      "fit": {
+        "max128": {"status": "no", "why": "~155 GB at 4-bit; a 2-bit build would fit at a quality cost"},
+        "ultra256": {"status": "fits", "why": "~155 GB at 4-bit (~187 GB at NVFP4 in another source)"}
+      },
+      "speed": {}
+    },
+    {
+      "id": "qwen3-235b-a22b",
+      "name": "Qwen3 235B-A22B 4-bit",
+      "swe_bench_pro": null,
+      "fit": {
+        "max128": {"status": "no", "why": "~130 GB"},
+        "ultra256": {"status": "fits", "why": "~130 GB"}
+      },
+      "speed": {
+        "ultra256": {"decode": 14, "prefill": null, "kind": "estimate", "note": "ModelFit's estimate, not a measurement", "source": "https://modelfit.io/mac-studio/m5/"}
+      }
+    },
+    {
+      "id": "glm-5.2",
+      "name": "GLM-5.2",
+      "swe_bench_pro": 62.1,
+      "fit": {
+        "max128": {"status": "no", "why": "too large"},
+        "ultra256": {"status": "tight", "why": "one source says it still fits in 256 GB; another puts it in the 512 GB tier"}
+      },
+      "speed": {}
+    }
+  ],
+  "today": {
+    "name": "M1 Max, 64 GB (measured here)",
+    "swe_bench_pro": {
+      "qwen3.6-27b": 53.5,
+      "qwen3.6-35b-a3b": 49.5,
+      "qwen3.8-27b": 61.7
+    },
+    "note": "Quality is the published full-precision SWE-bench Pro score for the model; speed is our own measurement of the 4-/8-bit build. gpt-oss-20b and Apple's model have no SWE-bench Pro score."
+  },
+  "claude": {
+    "note": "Quality: SWE-bench Pro (BenchLM; Haiku 5.5 from CodingFleet). Speed: Artificial Analysis output tokens/s at the highest reasoning effort it lists, so they include thinking tokens. No prefill figures exist for hosted models, and the time-to-first-token values on those pages (12-560 s) look like reasoning time rather than latency, so they are left out.",
+    "speed_source": "https://artificialanalysis.ai/models/claude-sonnet-5-5",
+    "models": [
+      {"name": "Claude Opus 5.5", "swe_bench_pro": 89.9, "decode": 98, "effort": "max"},
+      {"name": "Claude Sonnet 5.5", "swe_bench_pro": 81.3, "decode": 140, "effort": "max"},
+      {"name": "Claude Fable 5.1", "swe_bench_pro": 81.2, "decode": 68, "effort": "max"},
+      {"name": "Claude Haiku 5.5", "swe_bench_pro": 64.8, "decode": 235, "effort": "max", "swe_source": "https://codingfleet.com/blog/swe-bench-pro-leaderboard-2026/"}
+    ]
+  },
+  "published_scores": {
+    "subject": "Qwen3.8-Flash-Next",
+    "scores": {
+      "gsm8k": {
+        "pct": 95.9,
+        "mode": "no-think",
+        "quant": "UD-Q2_K_XL (2-bit GGUF)",
+        "hardware": "RTX 5090 32 GB",
+        "note": "full set, greedy, community run",
+        "source": "https://github.com/notwitcheer/llm-bench-rig/blob/main/reports/qwen3-8-flash-next-ud-q2-k-xl.md"
+      },
+      "mmlu": {
+        "pct": 88.5,
+        "mode": "no-think",
+        "quant": "UD-Q2_K_XL (2-bit GGUF)",
+        "hardware": "RTX 5090 32 GB",
+        "note": "50% stratified sample, community run",
+        "source": "https://github.com/notwitcheer/llm-bench-rig/blob/main/reports/qwen3-8-flash-next-ud-q2-k-xl.md"
+      },
+      "code": {
+        "pct": 91.9,
+        "mode": "vendor-reported, thinking mode assumed",
+        "quant": "unspecified (vendor)",
+        "hardware": "unspecified (vendor)",
+        "note": "LiveCodeBench v6 as reported by Alibaba; token budget unknown, so not comparable with our 4k/16k runs",
+        "source": "https://www.datacamp.com/blog/qwen3-8-flash-next"
+      }
+    }
+  }
+}

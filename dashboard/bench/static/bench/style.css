@@ -264,3 +264,26 @@ tr.suspect td.flag {
         --panel-bg: #1c2026;
     }
 }
+
+.fit {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.fit-fits { background: #16a34a; }
+.fit-tight { background: #d97706; }
+.fit-no { background: #dc2626; }
+.fit-unverified { background: #6b7280; }
+
+td.text .why {
+    color: var(--muted);
+    white-space: normal;
+}
+
+#fitTable td.text { white-space: normal; min-width: 220px; }
+
+#newSpeedTable td.basis { white-space: normal; min-width: 320px; }
