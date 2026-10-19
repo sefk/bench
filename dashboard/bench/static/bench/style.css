@@ -240,6 +240,14 @@ tr.suspect td.flag {
     margin-top: 4px;
 }
 
+.speculative-banner {
+    border-left: 3px solid var(--warn-border);
+    background: var(--warn-bg);
+    font-size: 12px;
+    padding: 6px 10px;
+    margin: 0 0 8px 0;
+}
+
 @media (prefers-color-scheme: dark) {
     :root {
         --bg: #15181d;

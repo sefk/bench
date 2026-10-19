@@ -61,6 +61,20 @@ def _load_model_facts(path: Path = MODEL_FACTS_PATH) -> dict[str, dict]:
 
 
 MODEL_FACTS = _load_model_facts()
+
+# Scores other people measured, on hardware we do not own. Kept out of the
+# result rows on purpose: they have no throughput, no sample we can vouch for,
+# and must never be joined onto a measured variant.
+PUBLISHED_SCORES_PATH = Path(__file__).resolve().parents[2] / "published-scores.json"
+
+
+def load_published(path: Path = PUBLISHED_SCORES_PATH) -> dict:
+    try:
+        with path.open() as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {k: v for k, v in data.items() if not k.startswith("_")}
 _FACT_FIELDS = ("arch", "params", "active", "version")
 
 

@@ -1,0 +1,31 @@
+{
+  "_about": "Scores for hardware we do not own, taken from other people's runs. NOT measured here: no result file, no sample size we can vouch for, no confidence interval. Read by dashboard/bench/loader.py and drawn on the quality tab, apart from the measured models.",
+  "subject": "Qwen3.8-Flash-Next",
+  "machine": "proposed Mac Studio M5 Ultra, 30-core, 256 GB (not purchased, not run)",
+  "scores": {
+    "gsm8k": {
+      "pct": 95.9,
+      "mode": "no-think",
+      "quant": "UD-Q2_K_XL (2-bit GGUF)",
+      "hardware": "RTX 5090 32 GB",
+      "note": "full set, greedy, community run",
+      "source": "https://github.com/notwitcheer/llm-bench-rig/blob/main/reports/qwen3-8-flash-next-ud-q2-k-xl.md"
+    },
+    "mmlu": {
+      "pct": 88.5,
+      "mode": "no-think",
+      "quant": "UD-Q2_K_XL (2-bit GGUF)",
+      "hardware": "RTX 5090 32 GB",
+      "note": "50% stratified sample, community run",
+      "source": "https://github.com/notwitcheer/llm-bench-rig/blob/main/reports/qwen3-8-flash-next-ud-q2-k-xl.md"
+    },
+    "code": {
+      "pct": 91.9,
+      "mode": "vendor-reported, thinking mode assumed",
+      "quant": "unspecified (vendor)",
+      "hardware": "unspecified (vendor)",
+      "note": "LiveCodeBench v6 as reported by Alibaba; token budget unknown, so not comparable with our 4k/16k runs",
+      "source": "https://www.datacamp.com/blog/qwen3-8-flash-next"
+    }
+  }
+}

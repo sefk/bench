@@ -393,6 +393,17 @@ class ViewTests(SimpleTestCase):
         data = response.json()
         self.assertEqual(len(data["rows"]), 1)
 
+    def test_api_published_is_unmeasured_and_sourced(self):
+        data = self.client.get("/api/published/").json()
+        self.assertEqual(set(data["scores"]), {"gsm8k", "mmlu", "code"})
+        for score in data["scores"].values():
+            self.assertTrue(score["source"].startswith("https://"))
+            self.assertNotIn("ci95", score)
+
+    def test_api_published_missing_file_is_empty(self):
+        from .loader import load_published
+        self.assertEqual(load_published(self.results_dir / "nope.json"), {})
+
     def test_api_meta_ok(self):
         response = self.client.get("/api/meta/")
         self.assertEqual(response.status_code, 200)

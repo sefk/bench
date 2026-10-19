@@ -170,12 +170,14 @@
     // ---- data load -------------------------------------------------------
 
     async function loadData() {
-        const [metaResp, rowsResp] = await Promise.all([
+        const [metaResp, rowsResp, pubResp] = await Promise.all([
             fetch("/api/meta/"),
             fetch("/api/rows/"),
+            fetch("/api/published/"),
         ]);
         state.meta = await metaResp.json();
         state.rows = (await rowsResp.json()).rows;
+        state.published = await pubResp.json();
         readStateFromURL();
     }
 
@@ -604,6 +606,126 @@
         });
     }
 
+    // ---- speculative published scores ----------------------------------------
+    //
+    // Scores for a machine we do not own, from other people's runs. Drawn in
+    // their own chart, hatched and dashed, beside the measured variants so the
+    // two can be compared without ever sharing a speed axis (there is no
+    // measured speed for the proposed machine).
+
+    const PUBLISHED_TASKS = [
+        { key: "gsm8k", label: "GSM8K", measured: ["quality_gsm8k"] },
+        { key: "mmlu", label: "MMLU", measured: ["quality_mmlu"] },
+        // Our best code measure: the 16k-budget run where there is one.
+        { key: "code", label: "LiveCodeBench", measured: ["quality_code_16k", "quality_code"] },
+    ];
+
+    function hatchPattern(color) {
+        const tile = document.createElement("canvas");
+        tile.width = tile.height = 8;
+        const c = tile.getContext("2d");
+        c.strokeStyle = color;
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(0, 8); c.lineTo(8, 0);
+        c.stroke();
+        return c.createPattern(tile, "repeat");
+    }
+
+    function latestPerVariant(rows) {
+        const latest = new Map();
+        for (const row of rows) {
+            const seen = latest.get(row.variant);
+            if (!seen || row.date > seen.date) latest.set(row.variant, row);
+        }
+        return [...latest.values()];
+    }
+
+    function renderPublishedChart(rows) {
+        const pub = state.published;
+        const block = document.getElementById("publishedBlock");
+        if (!pub || !pub.scores) {
+            block.hidden = true;
+            return;
+        }
+        block.hidden = false;
+
+        const measured = latestPerVariant(rows).filter((r) =>
+            PUBLISHED_TASKS.some((t) => t.measured.some((k) => isNum(r[k]))));
+        const datasets = measured.map((r) => ({
+            label: shortLabel(r) + modeNote(r),
+            data: PUBLISHED_TASKS.map((t) => {
+                const k = t.measured.find((key) => isNum(r[key]));
+                return k ? r[k] : null;
+            }),
+            backgroundColor: colorFor(r.variant),
+        }));
+
+        const spec = "#6b7280";
+        datasets.push({
+            label: `${pub.subject} (published, not run here)`,
+            data: PUBLISHED_TASKS.map((t) => (pub.scores[t.key] || {}).pct ?? null),
+            backgroundColor: hatchPattern(spec),
+            borderColor: spec,
+            borderWidth: 2,
+            borderDash: [5, 4],
+        });
+
+        const values = datasets.flatMap((d) => d.data).filter(isNum);
+        const yb = niceBounds(Math.min(...values), Math.max(...values));
+
+        drawChart("publishedChart", {
+            type: "bar",
+            data: { labels: PUBLISHED_TASKS.map((t) => t.label), datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        min: Math.max(0, yb.min),
+                        max: Math.min(100, yb.max),
+                        ticks: { stepSize: yb.step, callback: (v) => `${v}%` },
+                    },
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        align: "start",
+                        text: `${pub.subject} — SPECULATIVE on ${pub.machine}`,
+                        font: { size: 14, weight: "600" },
+                        color: cssVar("--fg"),
+                    },
+                    subtitle: {
+                        display: true,
+                        align: "start",
+                        text: "Solid bars: measured here. Hatched bar: published elsewhere, no interval.",
+                        padding: { bottom: 8 },
+                    },
+                    legend: { position: "top", align: "start", labels: { usePointStyle: true } },
+                    tooltip: {
+                        callbacks: {
+                            label: (item) => {
+                                const pct = `${item.dataset.label}: ${item.parsed.y.toFixed(1)}%`;
+                                const task = PUBLISHED_TASKS[item.dataIndex];
+                                const s = pub.scores[task.key];
+                                if (!item.dataset.borderDash || !s) return pct;
+                                return [pct, `mode: ${s.mode}`, `build: ${s.quant}`,
+                                    `hardware: ${s.hardware}`, s.note];
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        document.getElementById("publishedNotes").innerHTML = PUBLISHED_TASKS.map((t) => {
+            const s = pub.scores[t.key];
+            if (!s) return "";
+            return `<li><b>${t.label} ${s.pct}%</b> — ${s.mode}; ${s.quant}; ${s.hardware}; ${s.note}. ` +
+                `<a href="${s.source}">source</a></li>`;
+        }).join("");
+    }
+
     // ---- speed by dimension tab ----------------------------------------
 
     function buildSeries(rows) {
@@ -789,6 +911,7 @@
         const rows = filteredRows();
         if (state.tab === "quality") {
             renderQualityChart(rows);
+            renderPublishedChart(rows);
         } else if (state.tab === "speed") {
             renderMainChart(rows);
             renderCompareChart(rows);

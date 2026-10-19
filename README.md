@@ -393,7 +393,12 @@ The page has three tabs, all driven by the same filter sidebar:
    point per variant (its most recent run), a speed measure at one prompt size
    on X, a quality score (composite, GSM8K, MMLU or LiveCodeBench) with its 95%
    interval on Y. The axes are the other way round from the SVG so the chart
-   runs tall, which fits a document column.
+   runs tall, which fits a document column. Below it, a second chart sets
+   scores *published by others* for a machine we do not own (currently
+   Qwen3.8-Flash-Next on a proposed M5 Ultra) beside the measured variants,
+   drawn hatched and labelled speculative. They come from
+   `published-scores.json`, never from `results/`, carry no interval, and have
+   no speed position because nothing was measured.
 2. **Speed by dimension** — a speed measure across prompt sizes, with series
    by variant, precision, quant, arch, version, runtime or date, plus a bar
    comparison at one size.
