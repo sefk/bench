@@ -98,26 +98,6 @@
       }
     },
     {
-      "id": "mimo-v2.5",
-      "name": "MiMo-V2.5 iq3_s",
-      "swe_bench_pro": 56.1,
-      "fit": {
-        "max128": {"status": "unverified", "why": "a Reddit user runs the iq3_s GGUF with 256K context on a 128 GB MacBook; no size reported. BenchLM lists the model as proprietary, which conflicts with that GGUF existing, and the score is for the vendor's full-precision model"},
-        "ultra256": {"status": "unverified", "why": "no size reported; presumably fits since it runs on 128 GB"}
-      },
-      "speed": {}
-    },
-    {
-      "id": "laguna-s-2.1",
-      "name": "Laguna S 2.1 118B 4-bit",
-      "swe_bench_pro": 59.4,
-      "fit": {
-        "max128": {"status": "tight", "why": "~96 GB at 4-bit (from research notes), leaving little room for context"},
-        "ultra256": {"status": "fits", "why": "~96 GB"}
-      },
-      "speed": {}
-    },
-    {
       "id": "qwen3.5-122b-a10b",
       "name": "Qwen3.5-122B-A10B Q5",
       "swe_bench_pro": null,
