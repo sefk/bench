@@ -33,7 +33,7 @@
       },
       "speed": {
         "ultra256": {"decode": 87.8, "prefill": 2887, "kind": "measured", "note": "oMLX, 16K prompt (MacStories)", "source": "https://www.macstories.net/stories/m5-ultra-mac-studio-review-the-dream-mac-for-local-ai-agents/"},
-        "max128": {"decode": 49, "prefill": 1443, "kind": "estimate", "note": "decode: LLMCheck's estimate for Q4; prefill: derived as the Ultra figure x 40/80 GPU cores, found in no source", "source": "https://llmcheck.net/best-llm/macbook-pro-m5-max-128gb/"}
+        "max128": {"decode": 49, "prefill": 1810, "kind": "estimate", "note": "decode: LLMCheck's estimate for Q4. Community oMLX submissions on M5 Max 128 GB (MTP build, 128K ctx) range from 5 to 86 tok/s decode, so treat as wide-ranging; the top 10 are 76-86. prefill: median of those top-10 submissions (987-2,402), not a controlled measurement", "source": "https://llmcheck.net/best-llm/macbook-pro-m5-max-128gb/"}
       }
     },
     {
@@ -87,11 +87,63 @@
     },
     {
       "id": "deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash 4-bit",
+      "name": "DeepSeek V4 Flash (4-bit; 2-bit via ds4 on Max)",
       "swe_bench_pro": 52.6,
       "fit": {
-        "max128": {"status": "no", "why": "~155 GB at 4-bit; a 2-bit build would fit at a quality cost"},
+        "max128": {"status": "tight", "why": "4-bit (~155 GB) does not fit; antirez's ds4 2-bit build is ~98 GB, which is a quality cost. A Reddit user says larger builds crashed their 128 GB machine"},
         "ultra256": {"status": "fits", "why": "~155 GB at 4-bit (~187 GB at NVFP4 in another source)"}
+      },
+      "speed": {
+        "max128": {"decode": 28, "prefill": 340, "kind": "estimate", "note": "one Reddit user's report for the 2-bit ds4 build (27-30 decode; prefill 340 at empty context, ~275 at 100K); a second user saw ~30. Anecdote, not a benchmark", "source": "https://www.reddit.com/r/LocalLLM/comments/1uvojrw/best_local_opensource_ai_model_for_a_macbook_pro/"}
+      }
+    },
+    {
+      "id": "mimo-v2.5",
+      "name": "MiMo-V2.5 iq3_s",
+      "swe_bench_pro": 56.1,
+      "fit": {
+        "max128": {"status": "unverified", "why": "a Reddit user runs the iq3_s GGUF with 256K context on a 128 GB MacBook; no size reported. BenchLM lists the model as proprietary, which conflicts with that GGUF existing, and the score is for the vendor's full-precision model"},
+        "ultra256": {"status": "unverified", "why": "no size reported; presumably fits since it runs on 128 GB"}
+      },
+      "speed": {}
+    },
+    {
+      "id": "laguna-s-2.1",
+      "name": "Laguna S 2.1 118B 4-bit",
+      "swe_bench_pro": 59.4,
+      "fit": {
+        "max128": {"status": "tight", "why": "~96 GB at 4-bit (from research notes), leaving little room for context"},
+        "ultra256": {"status": "fits", "why": "~96 GB"}
+      },
+      "speed": {}
+    },
+    {
+      "id": "qwen3.5-122b-a10b",
+      "name": "Qwen3.5-122B-A10B Q5",
+      "swe_bench_pro": null,
+      "fit": {
+        "max128": {"status": "tight", "why": "~92 GB at Q5_K_XL per a Reddit user, leaving ~8 GB of usable memory for context"},
+        "ultra256": {"status": "fits", "why": "~92 GB"}
+      },
+      "speed": {}
+    },
+    {
+      "id": "gemma-4-31b",
+      "name": "Gemma 4 31B",
+      "swe_bench_pro": null,
+      "fit": {
+        "max128": {"status": "fits", "why": "~22-28 GB per Reddit reports"},
+        "ultra256": {"status": "fits", "why": "~22-28 GB"}
+      },
+      "speed": {}
+    },
+    {
+      "id": "qwen3-coder-next",
+      "name": "Qwen3-Coder-Next Q4 / Q8",
+      "swe_bench_pro": null,
+      "fit": {
+        "max128": {"status": "fits", "why": "Q4_K_M ~52 GB, Q8_0 ~85 GB per a Reddit user who runs it on a 128 GB machine"},
+        "ultra256": {"status": "fits", "why": "~52-85 GB"}
       },
       "speed": {}
     },
