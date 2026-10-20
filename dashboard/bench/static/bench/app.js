@@ -642,38 +642,95 @@
             ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     }
 
+    // Click-to-sort state for the two Candidates tables; not kept in the URL.
+    const FIT_RANK = { fits: 0, tight: 1, unverified: 2, no: 3 };
+    const candSort = {
+        fitTable: { key: "name", asc: true },
+        newSpeedTable: { key: "name", asc: true },
+    };
+    const candRows = { fitTable: [], newSpeedTable: [] };
+
+    // Rows are {sort: {key: value}, html}. Missing values always sort last.
+    function drawCandTable(tableId) {
+        const table = document.getElementById(tableId);
+        const { key, asc } = candSort[tableId];
+        const rows = candRows[tableId].slice().sort((a, b) => {
+            const av = a.sort[key], bv = b.sort[key];
+            const aMissing = av === null || av === undefined, bMissing = bv === null || bv === undefined;
+            if (aMissing || bMissing) return aMissing === bMissing ? 0 : aMissing ? 1 : -1;
+            const cmp = typeof av === "number" ? av - bv : String(av).localeCompare(String(bv));
+            return asc ? cmp : -cmp;
+        });
+        table.querySelector("tbody").innerHTML = rows.map((r) => r.html).join("");
+        for (const th of table.querySelectorAll("th")) {
+            th.classList.toggle("sorted", th.dataset.key === key);
+            th.classList.toggle("asc", th.dataset.key === key && asc);
+        }
+    }
+
+    function wireCandSort(tableId) {
+        const table = document.getElementById(tableId);
+        if (table.dataset.wired) return;
+        table.dataset.wired = "1";
+        for (const th of table.querySelectorAll("th")) {
+            th.addEventListener("click", () => {
+                const st = candSort[tableId];
+                if (st.key === th.dataset.key) {
+                    st.asc = !st.asc;
+                } else {
+                    st.key = th.dataset.key;
+                    // text columns start A-Z, numeric ones best-first
+                    st.asc = th.classList.contains("text");
+                }
+                drawCandTable(tableId);
+            });
+        }
+    }
+
     function renderCandidatesTab() {
         const nm = newMac();
         if (!nm) return;
         const chip = (f) => `<span class="fit fit-${f.status}" title="${escapeHtml(f.why)}">` +
             `${FIT_LABELS[f.status]}</span> <span class="why">${escapeHtml(f.why)}</span>`;
-        document.querySelector("#fitTable tbody").innerHTML = nm.candidates.map((c) =>
-            `<tr><td class="text">${escapeHtml(c.name)}</td>` +
-            `<td class="text">${chip(c.fit.max128)}</td>` +
-            `<td class="text">${chip(c.fit.ultra256)}</td>` +
-            `<td>${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td></tr>`
-        ).join("");
+        candRows.fitTable = nm.candidates.map((c) => ({
+            sort: {
+                name: c.name, max128: FIT_RANK[c.fit.max128.status],
+                ultra256: FIT_RANK[c.fit.ultra256.status], swe: c.swe_bench_pro,
+            },
+            html: `<tr><td class="text">${escapeHtml(c.name)}</td>` +
+                `<td class="text">${chip(c.fit.max128)}</td>` +
+                `<td class="text">${chip(c.fit.ultra256)}</td>` +
+                `<td>${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td></tr>`,
+        }));
         const m = nm.machines;
         document.getElementById("fitNote").innerHTML =
             `Max-128: ${escapeHtml(m.max128.name)}, ${escapeHtml(m.max128.bandwidth)}, ${escapeHtml(m.max128.gpu)}. ` +
             `Ultra-256: ${escapeHtml(m.ultra256.name)}, ${escapeHtml(m.ultra256.bandwidth)}, ${escapeHtml(m.ultra256.gpu)}. ` +
             `Usable for one model: ~${m.max128.usable_gb} GB vs ~${m.ultra256.usable_gb} GB ` +
             `(${escapeHtml(m.max128.usable_basis)}). SWE-bench Pro: ${escapeHtml(nm.swe_bench_pro_note)} ` +
-            `<a href="${nm.swe_bench_pro_source}">source</a>`;
+            `<a href="${nm.swe_bench_pro_source}">source</a>. ` +
+            `Sort the fit columns by clicking: fits, then tight, unverified, does not fit.`;
 
         const rows = [];
         for (const c of nm.candidates) {
             for (const key of ["max128", "ultra256"]) {
                 const sp = c.speed[key];
                 if (!sp) continue;
-                rows.push(`<tr><td class="text">${escapeHtml(c.name)}</td>` +
-                    `<td class="text">${m[key].label}</td>` +
-                    `<td>${fmt(sp.decode)}</td><td>${fmt(sp.prefill)}</td>` +
-                    `<td class="text basis"><b>${sp.kind}</b> &mdash; ${escapeHtml(sp.note)} ` +
-                    `<a href="${sp.source}">source</a></td></tr>`);
+                rows.push({
+                    sort: { name: c.name, machine: m[key].label, decode: sp.decode, prefill: sp.prefill, basis: sp.kind },
+                    html: `<tr><td class="text">${escapeHtml(c.name)}</td>` +
+                        `<td class="text">${m[key].label}</td>` +
+                        `<td>${fmt(sp.decode)}</td><td>${fmt(sp.prefill)}</td>` +
+                        `<td class="text basis"><b>${sp.kind}</b> &mdash; ${escapeHtml(sp.note)} ` +
+                        `<a href="${sp.source}">source</a></td></tr>`,
+                });
             }
         }
-        document.querySelector("#newSpeedTable tbody").innerHTML = rows.join("");
+        candRows.newSpeedTable = rows;
+        for (const id of ["fitTable", "newSpeedTable"]) {
+            wireCandSort(id);
+            drawCandTable(id);
+        }
     }
 
     // One scatter, quality (SWE-bench Pro) on Y, speed on X. `groups` is a list
