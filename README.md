@@ -379,6 +379,17 @@ cd dashboard && DASHBOARD_PORT=8123 honcho start        # another port
 cd dashboard && uv run manage.py runserver 127.0.0.1:8101   # this machine only
 ```
 
+To keep it running, `bin/deploy` installs a per-user LaunchAgent
+(`com.sefk.bench-dashboard`) that starts at login, restarts on exit, and
+listens on `0.0.0.0:8101` (`DASHBOARD_PORT` overrides). Rerun it to pick up
+code changes; `bin/deploy --remove` uninstalls. Logs go to
+`~/Library/Logs/bench-dashboard.log`. The server is Django's `runserver` with
+`DEBUG=True`, so anything on the network can reach it — fine on a home LAN.
+
+```sh
+bin/deploy
+```
+
 Then open <http://studio.local:8101/> from any machine on the LAN, or
 <http://127.0.0.1:8101/> on this one. The port is set with `DASHBOARD_PORT`,
 not `PORT`: `honcho start` always exports `PORT=5000` to its processes, which

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.sefk.bench-dashboard</string>
+
+	<!-- Rendered and loaded by bin/deploy; do not install by hand. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>@UV@</string>
+		<string>run</string>
+		<string>--no-sync</string>
+		<string>manage.py</string>
+		<string>runserver</string>
+		<string>--noreload</string>
+		<string>0.0.0.0:@PORT@</string>
+	</array>
+
+	<key>WorkingDirectory</key>
+	<string>@ROOT@/dashboard</string>
+
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>PYTHONUNBUFFERED</key>
+		<string>1</string>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>@LOG@</string>
+	<key>StandardErrorPath</key>
+	<string>@LOG@</string>
+</dict>
+</plist>
