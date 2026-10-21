@@ -5,7 +5,14 @@
 	<key>Label</key>
 	<string>com.sefk.bench-dashboard</string>
 
-	<!-- Rendered and loaded by bin/deploy; do not install by hand. -->
+	<!-- Rendered and loaded by bin/deploy as a system LaunchDaemon (starts at
+	     boot); it runs as the user so it can read the results. Do not install
+	     by hand. -->
+	<key>UserName</key>
+	<string>@USER@</string>
+	<key>GroupName</key>
+	<string>@GROUP@</string>
+
 	<key>ProgramArguments</key>
 	<array>
 		<string>@UV@</string>
@@ -24,11 +31,15 @@
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
 	<key>ProcessType</key>
 	<string>Background</string>
 
 	<key>EnvironmentVariables</key>
 	<dict>
+		<key>HOME</key>
+		<string>@HOME@</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 		<key>PYTHONUNBUFFERED</key>

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Install (or update) the benchmark dashboard as a per-user LaunchAgent: starts at
-# login, restarts if it dies, listens on every interface (0.0.0.0).
+# Install (or update) the benchmark dashboard as a system LaunchDaemon that runs as
+# this user: starts at boot with nobody logged in, restarts if it dies, listens on
+# every interface (0.0.0.0). Needs sudo for the install.
 #
 #   bin/deploy            sync deps, render the plist, (re)load, wait for it to answer
-#   bin/deploy --remove   unload and delete the agent
+#   bin/deploy --remove   unload and delete the daemon (and any old per-user agent)
 #
 # DASHBOARD_PORT overrides the port (default 8101, same as the Procfile).
 set -euo pipefail
@@ -16,21 +17,25 @@ unset VIRTUAL_ENV
 LABEL=com.sefk.bench-dashboard
 PORT="${DASHBOARD_PORT:-8101}"
 LOG="$HOME/Library/Logs/bench-dashboard.log"
-DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DEST="/Library/LaunchDaemons/$LABEL.plist"
+AGENT="$HOME/Library/LaunchAgents/$LABEL.plist"   # legacy per-user agent, only cleaned up
 GUI="gui/$(id -u)"
+SYS=system
 
 # bootout is asynchronous; bootstrap fails with "5: Input/output error" until it finishes.
 unload() {
   launchctl bootout "$GUI/$LABEL" 2>/dev/null || true
+  rm -f "$AGENT"
+  sudo launchctl bootout "$SYS/$LABEL" 2>/dev/null || true
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    launchctl print "$GUI/$LABEL" >/dev/null 2>&1 || return 0
+    launchctl print "$GUI/$LABEL" >/dev/null 2>&1 || launchctl print "$SYS/$LABEL" >/dev/null 2>&1 || return 0
     sleep 0.5
   done
 }
 
 if [ "${1:-}" = "--remove" ]; then
   unload
-  rm -f "$DEST"
+  sudo rm -f "$DEST"
   echo "removed $LABEL"
   exit 0
 fi
@@ -39,16 +44,21 @@ cd "$ROOT/dashboard"
 "$UV" sync
 "$UV" run --no-sync manage.py check
 
-mkdir -p "$(dirname "$LOG")" "$(dirname "$DEST")"
+mkdir -p "$(dirname "$LOG")"
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
 sed -e "s|@UV@|$UV|g" -e "s|@ROOT@|$ROOT|g" -e "s|@PORT@|$PORT|g" -e "s|@LOG@|$LOG|g" \
-    "$ROOT/launchd/$LABEL.plist.in" > "$DEST"
-plutil -lint "$DEST" >/dev/null
+    -e "s|@HOME@|$HOME|g" -e "s|@USER@|$(id -un)|g" -e "s|@GROUP@|$(id -gn)|g" \
+    "$ROOT/launchd/$LABEL.plist.in" > "$tmp"
+plutil -lint "$tmp" >/dev/null
 
+sudo -v
 unload
-launchctl bootstrap "$GUI" "$DEST"
+sudo install -o root -g wheel -m 644 "$tmp" "$DEST"
+sudo launchctl bootstrap "$SYS" "$DEST"
 
 for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"; then
+  if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
     echo "$LABEL up on 0.0.0.0:$PORT (log: $LOG)"
     exit 0
   fi

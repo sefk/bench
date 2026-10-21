@@ -379,8 +379,8 @@ cd dashboard && DASHBOARD_PORT=8123 honcho start        # another port
 cd dashboard && uv run manage.py runserver 127.0.0.1:8101   # this machine only
 ```
 
-To keep it running, `bin/deploy` installs a per-user LaunchAgent
-(`com.sefk.bench-dashboard`) that starts at login, restarts on exit, and
+To keep it running, `bin/deploy` installs a system LaunchDaemon (runs as you, needs sudo)
+(`com.sefk.bench-dashboard`) that starts at boot, restarts on exit, and
 listens on `0.0.0.0:8101` (`DASHBOARD_PORT` overrides). Rerun it to pick up
 code changes; `bin/deploy --remove` uninstalls. Logs go to
 `~/Library/Logs/bench-dashboard.log`. The server is Django's `runserver` with
