@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install (or update) the benchmark dashboard as a system LaunchDaemon that runs as
-# this user: starts at boot with nobody logged in, restarts if it dies, listens on
-# every interface (0.0.0.0). Needs sudo for the install.
+# this user: starts at boot with nobody logged in, restarts if it dies, serves with
+# gunicorn on every interface (0.0.0.0). Needs sudo for the install.
 #
 #   bin/deploy            sync deps, render the plist, (re)load, wait for it to answer
 #   bin/deploy --remove   unload and delete the daemon (and any old per-user agent)
@@ -43,6 +43,7 @@ fi
 cd "$ROOT/dashboard"
 "$UV" sync
 "$UV" run --no-sync manage.py check
+DASHBOARD_DEBUG=0 "$UV" run --no-sync manage.py collectstatic --noinput
 
 mkdir -p "$(dirname "$LOG")"
 tmp="$(mktemp)"

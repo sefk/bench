@@ -3,9 +3,11 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = "dev-only-not-secret"
+# Nothing here uses sessions, CSRF or a database, so the key signs nothing; it is
+# still overridable. bin/deploy sets DASHBOARD_DEBUG=0 for the gunicorn daemon.
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-not-secret")
 
-DEBUG = True
+DEBUG = os.environ.get("DASHBOARD_DEBUG", "1") != "0"
 
 # Local exploratory tool, no auth -- accept any host so `honcho start` (0.0.0.0:8101,
 # see the Procfile) works from other machines on the LAN.
@@ -25,6 +27,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
+    # Serves STATIC_ROOT under gunicorn, where runserver's static handler is absent.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -51,5 +55,6 @@ DATABASES = {}
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

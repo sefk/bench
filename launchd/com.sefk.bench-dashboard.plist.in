@@ -18,10 +18,17 @@
 		<string>@UV@</string>
 		<string>run</string>
 		<string>--no-sync</string>
-		<string>manage.py</string>
-		<string>runserver</string>
-		<string>--noreload</string>
+		<string>gunicorn</string>
+		<string>config.wsgi:application</string>
+		<string>--bind</string>
 		<string>0.0.0.0:@PORT@</string>
+		<string>--workers</string>
+		<string>2</string>
+		<string>--access-logfile</string>
+		<string>-</string>
+		<string>--error-logfile</string>
+		<string>-</string>
+		<string>--capture-output</string>
 	</array>
 
 	<key>WorkingDirectory</key>
@@ -42,6 +49,8 @@
 		<string>@HOME@</string>
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>DASHBOARD_DEBUG</key>
+		<string>0</string>
 		<key>PYTHONUNBUFFERED</key>
 		<string>1</string>
 	</dict>

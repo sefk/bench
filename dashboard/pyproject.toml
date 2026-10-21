@@ -5,6 +5,8 @@ description = "Exploratory dashboard for local LLM benchmark results"
 requires-python = ">=3.11"
 dependencies = [
     "django>=5.0,<6.0",
+    "gunicorn>=26.2.0",
+    "whitenoise>=6.12.0",
 ]
 
 [tool.uv]

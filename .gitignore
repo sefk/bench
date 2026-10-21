@@ -4,3 +4,4 @@ dashboard/.venv/
 dashboard/db.sqlite3
 lms-monitor/var/
 quality/code-tests/
+dashboard/staticfiles/
