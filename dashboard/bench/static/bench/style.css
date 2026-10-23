@@ -22,7 +22,26 @@ body {
 header {
     padding: 12px 20px;
     border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
 }
+
+.filters-toggle {
+    font: inherit;
+    font-size: 13px;
+    padding: 4px 10px;
+    color: var(--fg);
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.filters-toggle:hover { border-color: var(--accent); }
+
+body.filters-collapsed aside { display: none; }
 
 header h1 {
     font-size: 18px;

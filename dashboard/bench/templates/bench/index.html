@@ -7,8 +7,12 @@
 </head>
 <body>
 <header>
-    <h1>Local LLM Benchmark Dashboard</h1>
-    <p>Exploring results under <code>results/&lt;date&gt;/*.json</code></p>
+    <button id="filtersToggle" class="filters-toggle" type="button" aria-controls="filters" aria-expanded="true"
+            title="Show or hide the filter pane">&#9776; Filters</button>
+    <div>
+        <h1>Local LLM Benchmark Dashboard</h1>
+        <p>Exploring results under <code>results/&lt;date&gt;/*.json</code></p>
+    </div>
 </header>
 <div class="layout">
     <aside id="filters"></aside>

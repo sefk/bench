@@ -1253,8 +1253,29 @@
         writeStateToURL(push);
     }
 
+    // The filter pane can be hidden to give the charts and tables the full width;
+    // the choice is remembered per browser.
+    function setupFiltersToggle() {
+        const btn = document.getElementById("filtersToggle");
+        const apply = (collapsed) => {
+            document.body.classList.toggle("filters-collapsed", collapsed);
+            btn.setAttribute("aria-expanded", String(!collapsed));
+            // Chart.js sizes from its container; nudge it to re-measure.
+            window.dispatchEvent(new Event("resize"));
+        };
+        let collapsed = false;
+        try { collapsed = localStorage.getItem("filtersCollapsed") === "1"; } catch (e) { /* storage blocked */ }
+        apply(collapsed);
+        btn.addEventListener("click", () => {
+            collapsed = !collapsed;
+            apply(collapsed);
+            try { localStorage.setItem("filtersCollapsed", collapsed ? "1" : "0"); } catch (e) { /* storage blocked */ }
+        });
+    }
+
     async function init() {
         applyThemeDefaults();
+        setupFiltersToggle();
         setupTabs();
         renderTableHeader();
         await loadData();
