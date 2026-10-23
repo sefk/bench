@@ -699,9 +699,9 @@
                 swe: c.swe_bench_pro,
             },
             html: `<tr><td class="text">${escapeHtml(c.name)}</td>` +
+                `<td class="text today-col">${chip(c.fit.today)}</td>` +
                 `<td class="text">${chip(c.fit.max128)}</td>` +
                 `<td class="text">${chip(c.fit.ultra256)}</td>` +
-                `<td class="text">${chip(c.fit.today)}</td>` +
                 `<td>${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td></tr>`,
         }));
         const m = nm.machines;
