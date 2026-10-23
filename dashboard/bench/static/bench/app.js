@@ -687,11 +687,65 @@
         }
     }
 
+    // First tier whose floor the value clears; tiers are listed best-first.
+    function tierFor(scale, value) {
+        if (!isNum(value)) return null;
+        return scale.tiers.find((t) => value >= t.min) || scale.tiers[scale.tiers.length - 1];
+    }
+
+    function tierSlug(label) {
+        return label.replace(/\s+/g, "-");
+    }
+
+    function qualityBadge(nm, c) {
+        const tier = tierFor(nm.quality_scale, c.swe_bench_pro);
+        if (!tier) {
+            return `<span class="q q-unrated" title="No published SWE-bench Pro score">unrated</span>`;
+        }
+        return `<span class="q q-${tierSlug(tier.label)}" title="SWE-bench Pro ${c.swe_bench_pro}% (published)">` +
+            `${tier.label}</span> <span class="why">${c.swe_bench_pro}%</span>`;
+    }
+
+    // Decode speed for one candidate on one machine: ours where we ran the model,
+    // else the published/estimated figure, else a stand-in machine's figure.
+    function candidateSpeed(nm, c, key) {
+        if (key === "today") {
+            if (!c.today_base) return null;
+            const mine = state.rows.filter((r) => r.size === state.tSize &&
+                String(r.variant).split("@")[0] === c.today_base && isNum(r.gen_tps));
+            if (!mine.length) return null;
+            const best = latestPerVariant(mine).reduce((a, b) => (b.gen_tps > a.gen_tps ? b : a));
+            return { decode: best.gen_tps, prefill: best.prefill_tps, kind: "measured",
+                     note: `measured here, ${best.variant}, ${state.tSize} prompt` };
+        }
+        const sp = c.speed[key];
+        if (sp && isNum(sp.decode)) return sp;
+        const like = nm.machines[key] && nm.machines[key].speed_like;
+        const alt = like && c.speed[like];
+        if (alt && isNum(alt.decode)) {
+            return { ...alt, kind: "estimate", note: `${nm.machines[key].speed_basis}. ${alt.note}` };
+        }
+        return null;
+    }
+
+    function speedBadge(nm, c, key, fit) {
+        if (fit.status === "no") return "";
+        const sp = candidateSpeed(nm, c, key);
+        if (!sp) return ` <span class="spd spd-unknown" title="No decode figure for this machine">speed ?</span>`;
+        const tier = tierFor(nm.speed_scale, sp.decode);
+        const est = sp.kind === "estimate";
+        const prefill = isNum(sp.prefill) ? `, prefill ${fmt(sp.prefill)} tok/s` : "";
+        return ` <span class="spd spd-${tierSlug(tier.label)}${est ? " est" : ""}" ` +
+            `title="${escapeHtml(`${sp.kind}: ${fmt(sp.decode)} tok/s decode${prefill}. ${sp.note}`)}">` +
+            `${tier.label} &middot; ${est ? "~" : ""}${Math.round(sp.decode)} tok/s</span>`;
+    }
+
     function renderCandidatesTab() {
         const nm = newMac();
         if (!nm) return;
-        const chip = (f) => `<span class="fit fit-${f.status}" title="${escapeHtml(f.why)}">` +
-            `${FIT_LABELS[f.status]}</span> <span class="why">${escapeHtml(f.why)}</span>`;
+        const chip = (f, c, key) => `<span class="fit fit-${f.status}" title="${escapeHtml(f.why)}">` +
+            `${FIT_LABELS[f.status]}</span>${speedBadge(nm, c, key, f)}` +
+            `<div class="why">${escapeHtml(f.why)}</div>`;
         candRows.fitTable = nm.candidates.map((c) => ({
             sort: {
                 name: c.name, max128: FIT_RANK[c.fit.max128.status],
@@ -699,12 +753,11 @@
                 today: FIT_RANK[c.fit.today.status],
                 swe: c.swe_bench_pro,
             },
-            html: `<tr><td class="text">${escapeHtml(c.name)}</td>` +
-                `<td class="swe-col">${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td>` +
-                `<td class="text today-col">${chip(c.fit.today)}</td>` +
-                `<td class="text">${chip(c.fit.max128)}</td>` +
-                `<td class="text">${chip(c.fit.ultra96)}</td>` +
-                `<td class="text">${chip(c.fit.ultra256)}</td></tr>`,
+            html: `<tr><td class="text name-col">${escapeHtml(c.name)}<div>${qualityBadge(nm, c)}</div></td>` +
+                `<td class="text today-col">${chip(c.fit.today, c, "today")}</td>` +
+                `<td class="text">${chip(c.fit.max128, c, "max128")}</td>` +
+                `<td class="text">${chip(c.fit.ultra96, c, "ultra96")}</td>` +
+                `<td class="text">${chip(c.fit.ultra256, c, "ultra256")}</td></tr>`,
         }));
         const m = nm.machines;
         document.getElementById("fitNote").innerHTML =
@@ -716,6 +769,10 @@
             `(${escapeHtml(nm.today.usable_basis)}); the Today and Ultra-96 verdicts are derived from the sizes ` +
             `cited for the other machines (the Ultra-96 has no published figures), except builds measured here. SWE-bench Pro: ${escapeHtml(nm.swe_bench_pro_note)} ` +
             `<a href="${nm.swe_bench_pro_source}">source</a>. ` +
+            `Quality badge: ${escapeHtml(nm.quality_scale.note)} ` +
+            `Speed badge: ${escapeHtml(nm.speed_scale.note)} Tiers: ` +
+            nm.speed_scale.tiers.map((t) => `${t.label} \u2265${t.min}`).join(", ") + ". " +
+            "A dashed speed badge (~) is an estimate; a solid one was measured. " +
             `Sort the fit columns by clicking: fits, then tight, unverified, does not fit.`;
 
         const rows = [];

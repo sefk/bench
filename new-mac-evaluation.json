@@ -17,6 +17,8 @@
       "gpu": "up to 80 cores",
       "usable_gb": 75,
       "usable_basis": "assumption: ~78% of 96 GB, the same share assumed for the other machines",
+      "speed_like": "ultra256",
+      "speed_basis": "same 1.2 TB/s chip as the Ultra-256 and decode is bandwidth-bound, so its published figure stands in; marked as an estimate",
       "source": "https://www.macrumors.com/guide/m5-max-vs-m5-ultra/"
     },
     "ultra256": {
@@ -31,6 +33,25 @@
   },
   "swe_bench_pro_note": "BenchLM leaderboard; setups differ between vendors, so small gaps are directional. Scores are the vendor/leaderboard configuration, not a 4-bit build on the machine in question. OpenAI's July 2026 audit estimated ~30% of the public split is broken.",
   "swe_bench_pro_source": "https://benchlm.ai/benchmarks/swe-bench-pro",
+  "quality_scale": {
+    "note": "Coding quality from published SWE-bench Pro, anchored on Claude: Sonnet 5.5 (81.3%) is 'good', Opus 5.5 (89.9%) is 'excellent'. Haiku 5.5 (64.8%) lands in 'decent'. Models with no published SWE-bench Pro score are 'unrated' rather than guessed.",
+    "tiers": [
+      {"label": "excellent", "min": 85},
+      {"label": "good", "min": 75},
+      {"label": "decent", "min": 60},
+      {"label": "fair", "min": 45},
+      {"label": "weak", "min": 0}
+    ]
+  },
+  "speed_scale": {
+    "note": "Decode tokens/s for an interactive coding agent. Badges use the 16K-context decode figure where there is one.",
+    "tiers": [
+      {"label": "very fast", "min": 60},
+      {"label": "fast", "min": 30},
+      {"label": "usable", "min": 15},
+      {"label": "slow", "min": 0}
+    ]
+  },
   "candidates": [
     {
       "id": "flash-next-4bit",

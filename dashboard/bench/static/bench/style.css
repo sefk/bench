@@ -238,6 +238,9 @@ tr.suspect td.flag {
     border-radius: 6px;
 }
 
+/* The fit table is the point of the tab; show every row without an inner scroll. */
+.table-wrap.tall-table { max-height: none; }
+
 .hint {
     color: var(--muted);
     font-size: 11px;
@@ -279,6 +282,33 @@ tr.suspect td.flag {
 .fit-no { background: #dc2626; }
 .fit-unverified { background: #6b7280; }
 
+.q, .spd {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.q-excellent { background: #15803d; }
+.q-good { background: #16a34a; }
+.q-decent { background: #2b7bba; }
+.q-fair { background: #d97706; }
+.q-weak { background: #dc2626; }
+.q-unrated { background: #6b7280; }
+
+.spd-very-fast { background: #0f766e; }
+.spd-fast { background: #0d9488; }
+.spd-usable { background: #ca8a04; }
+.spd-slow { background: #b45309; }
+.spd-unknown { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+/* Estimates are drawn hollow with a dashed outline, measured figures solid. */
+.spd.est { background: transparent; border: 1px dashed currentColor; }
+.spd-very-fast.est, .spd-fast.est { color: #0d9488; }
+.spd-usable.est { color: #ca8a04; }
+.spd-slow.est { color: #b45309; }
+
 td.text .why {
     color: var(--muted);
     white-space: normal;
@@ -286,6 +316,6 @@ td.text .why {
 
 #fitTable td.text { white-space: normal; min-width: 220px; }
 /* Faint dividers: quality | the machine we have | the machines being considered. */
-#fitTable .swe-col, #fitTable .today-col { border-right: 1px solid var(--border); }
+#fitTable .name-col, #fitTable .today-col { border-right: 1px solid var(--border); }
 
 #newSpeedTable td.basis { white-space: normal; min-width: 320px; }
