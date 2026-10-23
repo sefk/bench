@@ -695,11 +695,13 @@
         candRows.fitTable = nm.candidates.map((c) => ({
             sort: {
                 name: c.name, max128: FIT_RANK[c.fit.max128.status],
-                ultra256: FIT_RANK[c.fit.ultra256.status], swe: c.swe_bench_pro,
+                ultra256: FIT_RANK[c.fit.ultra256.status], today: FIT_RANK[c.fit.today.status],
+                swe: c.swe_bench_pro,
             },
             html: `<tr><td class="text">${escapeHtml(c.name)}</td>` +
                 `<td class="text">${chip(c.fit.max128)}</td>` +
                 `<td class="text">${chip(c.fit.ultra256)}</td>` +
+                `<td class="text">${chip(c.fit.today)}</td>` +
                 `<td>${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td></tr>`,
         }));
         const m = nm.machines;
@@ -707,7 +709,9 @@
             `Max-128: ${escapeHtml(m.max128.name)}, ${escapeHtml(m.max128.bandwidth)}, ${escapeHtml(m.max128.gpu)}. ` +
             `Ultra-256: ${escapeHtml(m.ultra256.name)}, ${escapeHtml(m.ultra256.bandwidth)}, ${escapeHtml(m.ultra256.gpu)}. ` +
             `Usable for one model: ~${m.max128.usable_gb} GB vs ~${m.ultra256.usable_gb} GB ` +
-            `(${escapeHtml(m.max128.usable_basis)}). SWE-bench Pro: ${escapeHtml(nm.swe_bench_pro_note)} ` +
+            `(${escapeHtml(m.max128.usable_basis)}). Today: ${escapeHtml(nm.today.name)}, ~${nm.today.usable_gb} GB usable ` +
+            `(${escapeHtml(nm.today.usable_basis)}); its verdicts are derived from the sizes cited for the other ` +
+            `machines unless the build was measured here. SWE-bench Pro: ${escapeHtml(nm.swe_bench_pro_note)} ` +
             `<a href="${nm.swe_bench_pro_source}">source</a>. ` +
             `Sort the fit columns by clicking: fits, then tight, unverified, does not fit.`;
 
@@ -723,6 +727,22 @@
                         `<td>${fmt(sp.decode)}</td><td>${fmt(sp.prefill)}</td>` +
                         `<td class="text basis"><b>${sp.kind}</b> &mdash; ${escapeHtml(sp.note)} ` +
                         `<a href="${sp.source}">source</a></td></tr>`,
+                });
+            }
+        }
+        // Today's M1 Max, measured here, for the candidates we also run.
+        const todayLabel = "Today (M1 Max)";
+        for (const c of nm.candidates) {
+            if (!c.today_base) continue;
+            const mine = state.rows.filter((r) => r.size === state.tSize && String(r.variant).split("@")[0] === c.today_base);
+            for (const row of latestPerVariant(mine)) {
+                rows.push({
+                    sort: { name: c.name, machine: todayLabel, decode: row.gen_tps, prefill: row.prefill_tps, basis: "measured" },
+                    html: `<tr><td class="text">${escapeHtml(c.name)}</td>` +
+                        `<td class="text">${todayLabel}</td>` +
+                        `<td>${fmt(row.gen_tps)}</td><td>${fmt(row.prefill_tps)}</td>` +
+                        `<td class="text basis"><b>measured</b> &mdash; here, ${escapeHtml(row.variant)}, ` +
+                        `${escapeHtml(state.tSize)} prompt, run ${row.date}</td></tr>`,
                 });
             }
         }

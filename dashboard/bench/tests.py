@@ -400,7 +400,7 @@ class ViewTests(SimpleTestCase):
             for machine, sp in cand["speed"].items():
                 self.assertIn(sp["kind"], {"measured", "estimate"}, cand["id"])
                 self.assertTrue(sp["source"].startswith("https://"), cand["id"])
-            self.assertEqual(set(cand["fit"]), {"max128", "ultra256"}, cand["id"])
+            self.assertEqual(set(cand["fit"]), {"max128", "ultra256", "today"}, cand["id"])
         for score in data["published_scores"]["scores"].values():
             self.assertNotIn("ci95", score)
         for model in data["claude"]["models"]:
