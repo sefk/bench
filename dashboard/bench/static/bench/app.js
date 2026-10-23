@@ -695,23 +695,26 @@
         candRows.fitTable = nm.candidates.map((c) => ({
             sort: {
                 name: c.name, max128: FIT_RANK[c.fit.max128.status],
-                ultra256: FIT_RANK[c.fit.ultra256.status], today: FIT_RANK[c.fit.today.status],
+                ultra96: FIT_RANK[c.fit.ultra96.status], ultra256: FIT_RANK[c.fit.ultra256.status],
+                today: FIT_RANK[c.fit.today.status],
                 swe: c.swe_bench_pro,
             },
             html: `<tr><td class="text">${escapeHtml(c.name)}</td>` +
+                `<td class="swe-col">${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td>` +
                 `<td class="text today-col">${chip(c.fit.today)}</td>` +
                 `<td class="text">${chip(c.fit.max128)}</td>` +
-                `<td class="text">${chip(c.fit.ultra256)}</td>` +
-                `<td>${c.swe_bench_pro === null ? "–" : c.swe_bench_pro + "%"}</td></tr>`,
+                `<td class="text">${chip(c.fit.ultra96)}</td>` +
+                `<td class="text">${chip(c.fit.ultra256)}</td></tr>`,
         }));
         const m = nm.machines;
         document.getElementById("fitNote").innerHTML =
             `Max-128: ${escapeHtml(m.max128.name)}, ${escapeHtml(m.max128.bandwidth)}, ${escapeHtml(m.max128.gpu)}. ` +
+            `Ultra-96: ${escapeHtml(m.ultra96.name)}, same chip as the Ultra-256 with less memory. ` +
             `Ultra-256: ${escapeHtml(m.ultra256.name)}, ${escapeHtml(m.ultra256.bandwidth)}, ${escapeHtml(m.ultra256.gpu)}. ` +
-            `Usable for one model: ~${m.max128.usable_gb} GB vs ~${m.ultra256.usable_gb} GB ` +
+            `Usable for one model: ~${m.max128.usable_gb} GB (Max-128), ~${m.ultra96.usable_gb} GB (Ultra-96), ~${m.ultra256.usable_gb} GB (Ultra-256) ` +
             `(${escapeHtml(m.max128.usable_basis)}). Today: ${escapeHtml(nm.today.name)}, ~${nm.today.usable_gb} GB usable ` +
-            `(${escapeHtml(nm.today.usable_basis)}); its verdicts are derived from the sizes cited for the other ` +
-            `machines unless the build was measured here. SWE-bench Pro: ${escapeHtml(nm.swe_bench_pro_note)} ` +
+            `(${escapeHtml(nm.today.usable_basis)}); the Today and Ultra-96 verdicts are derived from the sizes ` +
+            `cited for the other machines (the Ultra-96 has no published figures), except builds measured here. SWE-bench Pro: ${escapeHtml(nm.swe_bench_pro_note)} ` +
             `<a href="${nm.swe_bench_pro_source}">source</a>. ` +
             `Sort the fit columns by clicking: fits, then tight, unverified, does not fit.`;
 

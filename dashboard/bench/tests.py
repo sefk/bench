@@ -395,12 +395,12 @@ class ViewTests(SimpleTestCase):
 
     def test_api_new_mac_is_sourced_and_unmeasured(self):
         data = self.client.get("/api/new-mac/").json()
-        self.assertEqual(set(data["machines"]), {"max128", "ultra256"})
+        self.assertEqual(set(data["machines"]), {"max128", "ultra96", "ultra256"})
         for cand in data["candidates"]:
             for machine, sp in cand["speed"].items():
                 self.assertIn(sp["kind"], {"measured", "estimate"}, cand["id"])
                 self.assertTrue(sp["source"].startswith("https://"), cand["id"])
-            self.assertEqual(set(cand["fit"]), {"max128", "ultra256", "today"}, cand["id"])
+            self.assertEqual(set(cand["fit"]), {"max128", "ultra96", "ultra256", "today"}, cand["id"])
         for score in data["published_scores"]["scores"].values():
             self.assertNotIn("ci95", score)
         for model in data["claude"]["models"]:

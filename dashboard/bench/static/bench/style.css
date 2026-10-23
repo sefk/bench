@@ -285,7 +285,7 @@ td.text .why {
 }
 
 #fitTable td.text { white-space: normal; min-width: 220px; }
-/* Separates the machine we have from the two being considered. */
-#fitTable .today-col { border-right: 2px solid var(--fg); }
+/* Faint dividers: quality | the machine we have | the machines being considered. */
+#fitTable .swe-col, #fitTable .today-col { border-right: 1px solid var(--border); }
 
 #newSpeedTable td.basis { white-space: normal; min-width: 320px; }
