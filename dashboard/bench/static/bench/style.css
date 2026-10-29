@@ -338,3 +338,14 @@ td.text .why {
 #fitTable .name-col, #fitTable .today-col { border-right: 1px solid var(--border); }
 
 #newSpeedTable td.basis { white-space: normal; min-width: 320px; }
+
+.col-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+    margin: 0 0 8px;
+    font-size: 13px;
+}
+.col-picker > span { font-weight: 600; }
+.col-picker label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }

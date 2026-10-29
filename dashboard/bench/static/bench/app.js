@@ -650,6 +650,46 @@
     };
     const candRows = { fitTable: [], newSpeedTable: [] };
 
+    // Columns the user has switched off, per table, remembered per browser.
+    // The first column (the candidate name) is always shown.
+    const candHidden = { fitTable: new Set(), newSpeedTable: new Set() };
+    try {
+        const saved = JSON.parse(localStorage.getItem("candHiddenCols") || "{}");
+        for (const id of Object.keys(candHidden)) candHidden[id] = new Set(saved[id] || []);
+    } catch (e) { /* storage blocked or unparseable */ }
+
+    function saveCandHidden() {
+        const out = {};
+        for (const id of Object.keys(candHidden)) out[id] = [...candHidden[id]];
+        try { localStorage.setItem("candHiddenCols", JSON.stringify(out)); } catch (e) { /* storage blocked */ }
+    }
+
+    function applyCandColumns(tableId) {
+        const table = document.getElementById(tableId);
+        const ths = [...table.querySelectorAll("thead th")];
+        const off = ths.map((th) => candHidden[tableId].has(th.dataset.key));
+        ths.forEach((th, i) => { th.hidden = off[i]; });
+        for (const tr of table.querySelectorAll("tbody tr")) {
+            [...tr.children].forEach((td, i) => { td.hidden = off[i]; });
+        }
+    }
+
+    function wireColumnPicker(tableId) {
+        const picker = document.querySelector(`.col-picker[data-table="${tableId}"]`);
+        if (!picker || picker.dataset.wired) return;
+        picker.dataset.wired = "1";
+        const ths = [...document.querySelectorAll(`#${tableId} thead th`)].slice(1);
+        picker.innerHTML = "<span>Columns</span>" + ths.map((th) =>
+            `<label><input type="checkbox" data-key="${th.dataset.key}"` +
+            `${candHidden[tableId].has(th.dataset.key) ? "" : " checked"}> ${escapeHtml(th.textContent)}</label>`).join("");
+        picker.addEventListener("change", (ev) => {
+            const box = ev.target;
+            candHidden[tableId][box.checked ? "delete" : "add"](box.dataset.key);
+            saveCandHidden();
+            applyCandColumns(tableId);
+        });
+    }
+
     // Rows are {sort: {key: value}, html}. Missing values always sort last.
     function drawCandTable(tableId) {
         const table = document.getElementById(tableId);
@@ -666,6 +706,7 @@
             th.classList.toggle("sorted", th.dataset.key === key);
             th.classList.toggle("asc", th.dataset.key === key && asc);
         }
+        applyCandColumns(tableId);
     }
 
     function wireCandSort(tableId) {
@@ -809,6 +850,7 @@
         candRows.newSpeedTable = rows;
         for (const id of ["fitTable", "newSpeedTable"]) {
             wireCandSort(id);
+            wireColumnPicker(id);
             drawCandTable(id);
         }
     }
