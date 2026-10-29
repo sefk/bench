@@ -653,10 +653,25 @@
     // Columns the user has switched off, per table, remembered per browser.
     // The first column (the candidate name) is always shown.
     const candHidden = { fitTable: new Set(), newSpeedTable: new Set() };
+    // Columns that start switched off. Each is applied once per browser, so a
+    // default added later still reaches someone with saved choices, and a
+    // column they switch back on stays on.
+    const CAND_DEFAULT_HIDDEN = { fitTable: ["ultra256"] };
+    let defaultsApplied = {};
     try {
         const saved = JSON.parse(localStorage.getItem("candHiddenCols") || "{}");
         for (const id of Object.keys(candHidden)) candHidden[id] = new Set(saved[id] || []);
+        defaultsApplied = JSON.parse(localStorage.getItem("candDefaultsApplied") || "{}");
     } catch (e) { /* storage blocked or unparseable */ }
+    for (const [id, keys] of Object.entries(CAND_DEFAULT_HIDDEN)) {
+        for (const key of keys) {
+            if ((defaultsApplied[id] || []).includes(key)) continue;
+            candHidden[id].add(key);
+            (defaultsApplied[id] = defaultsApplied[id] || []).push(key);
+        }
+    }
+    saveCandHidden();
+    try { localStorage.setItem("candDefaultsApplied", JSON.stringify(defaultsApplied)); } catch (e) { /* storage blocked */ }
 
     function saveCandHidden() {
         const out = {};
