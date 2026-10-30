@@ -131,13 +131,13 @@
       "name": "DeepSeek V4 Flash (4-bit; 2-bit via ds4 on Max)",
       "swe_bench_pro": 52.6,
       "fit": {
-        "max128": {"status": "tight", "why": "4-bit (~155 GB) does not fit; antirez's ds4 2-bit build is ~98 GB, which is a quality cost. A Reddit user says larger builds crashed their 128 GB machine"},
+        "max128": {"status": "tight", "why": "4-bit (~155 GB) does not fit; antirez's ds4 2-bit build is ~87 GB (~98 GB with the last layers at 4-bit), at a quality cost: KL divergence 0.41 and 78% top-token agreement vs the official weights (Unsloth). A Reddit user says larger builds crashed their 128 GB machine"},
         "ultra256": {"status": "fits", "why": "~155 GB at 4-bit (~187 GB at NVFP4 in another source)"},
-        "today": {"status": "no", "why": "4-bit is ~155 GB; even the 2-bit build is ~98 GB"},
-        "ultra96": {"status": "no", "why": "4-bit is ~155 GB; even the 2-bit build is ~98 GB"}
+        "today": {"status": "no", "why": "4-bit is ~155 GB; even the ds4 2-bit build is ~87 GB. ds4 can stream experts from SSD (~5 tok/s on a 64 GB M1 Ultra per its README)"},
+        "ultra96": {"status": "no", "why": "4-bit is ~155 GB; the ds4 2-bit build is ~87 GB, over the ~75 GB usable unless the GPU memory limit is raised, leaving a few GB for context. ds4 can stream experts from SSD (~11 tok/s on a 64 GB M5 Pro)"}
       },
       "speed": {
-        "max128": {"decode": 28, "prefill": 340, "kind": "estimate", "note": "one Reddit user's report for the 2-bit ds4 build (27-30 decode; prefill 340 at empty context, ~275 at 100K); a second user saw ~30. Anecdote, not a benchmark", "source": "https://www.reddit.com/r/LocalLLM/comments/1uvojrw/best_local_opensource_ai_model_for_a_macbook_pro/"}
+        "max128": {"decode": 36.1, "prefill": 572.5, "kind": "measured", "note": "ds4's published benchmark of its 2-bit build on an M5 Max 128 GB at 16K context (39.4 decode / 790 prefill at 2K, 34.4 / 557 at 32K, 27.6 / 399 at 64K). Reddit users report 27-30 decode", "source": "https://dwarfstar.sh/benchmarks/"}
       }
     },
     {
