@@ -80,6 +80,19 @@ def load_new_mac(path: Path = NEW_MAC_PATH) -> dict:
 # `machine` field; everything then was measured on the M1 Max.
 LEGACY_MACHINE = "M1 Max 64 GB"
 
+
+def legacy_engine(record: dict) -> str:
+    """The server that answered, for rows and quality entries that predate
+    the `engine` field: Apple's `fm serve` for its model, else LM Studio.
+    `runtime` is the weight format (mlx/gguf); `engine` is the server, and
+    the same build under two servers is two series.
+    """
+    if record.get("engine"):
+        return record["engine"]
+    if record.get("backend") == "fm" or str(record.get("model", "")).startswith("fm:"):
+        return "fm"
+    return "lmstudio"
+
 _FACT_FIELDS = ("arch", "params", "active", "version")
 
 
@@ -208,8 +221,8 @@ def _quality_field(task: str, max_tokens: int | None) -> str:
 JOINED_MODES = ("no-think", "effort-low")
 
 
-def load_quality(results_dir: Path) -> dict[tuple[str, str], dict]:
-    """Map (target id, machine) -> quality scores, from `quality*.json` files.
+def load_quality(results_dir: Path) -> dict[tuple[str, str, str], dict]:
+    """Map (target, machine, engine) -> quality scores, from `quality*.json`.
 
     Only the modes in JOINED_MODES are joined, and a target's no-think scores
     win over any other mode it was also run in. Scores from a reasoning-mode
@@ -237,7 +250,7 @@ def load_quality(results_dir: Path) -> dict[tuple[str, str], dict]:
             target = entry.get("target") or entry.get("model")
             if not target:
                 continue
-            key = (target, entry.get("machine", LEGACY_MACHINE))
+            key = (target, entry.get("machine", LEGACY_MACHINE), legacy_engine(entry))
             fields = {"quality_mode": mode}
             composite = entry.get("composite")
             if composite:
@@ -267,7 +280,7 @@ def load_quality(results_dir: Path) -> dict[tuple[str, str], dict]:
 
     # One mode per target, never a mix: a no-think composite beside an
     # effort-low code score would be two measurements under one label.
-    scores: dict[tuple[str, str], dict] = {}
+    scores: dict[tuple[str, str, str], dict] = {}
     for key, modes in by_mode.items():
         best = next(m for m in JOINED_MODES if m in modes)
         scores[key] = modes[best]
@@ -316,13 +329,14 @@ def _read_rows(results_dir: Path) -> list[dict]:
             row["date"] = date
             row["source_file"] = path.name
             row.setdefault("machine", LEGACY_MACHINE)
+            row["engine"] = legacy_engine(row)
             model = row.get("model", "")
             row.update(derive_dimensions(model))
             rows.append(row)
 
     quality = load_quality(results_dir)
     for row in rows:
-        row.update(quality.get((row.get("model", ""), row["machine"]), {}))
+        row.update(quality.get((row.get("model", ""), row["machine"], row["engine"]), {}))
     return rows
 
 
@@ -341,7 +355,7 @@ MEASURES = [
 ]
 
 DIMENSIONS = [
-    "machine", "version", "arch", "quant", "precision", "runtime", "date", "variant",
+    "machine", "engine", "version", "arch", "quant", "precision", "runtime", "date", "variant",
 ]
 
 SIZE_ORDER = ["short", "1000tok", "4000tok", "16000tok"]

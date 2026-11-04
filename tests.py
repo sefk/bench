@@ -269,6 +269,35 @@ class CodeToleranceParsingTests(unittest.TestCase):
         self.assertIsNone(self.mk.stated_tolerance("Print the number of ways."))
 
 
+class EngineTests(unittest.TestCase):
+    def test_split_target(self):
+        self.assertEqual(bench.split_target("qwen/qwen3.6-27b@4bit"), ("lmstudio", "qwen/qwen3.6-27b@4bit"))
+        self.assertEqual(bench.split_target("fm:system"), ("fm", "system"))
+        self.assertEqual(bench.split_target("mtplx:flash"), ("mtplx", "flash"))
+
+    def test_unknown_engine_fails_before_running(self):
+        with self.assertRaises(ValueError):
+            bench.split_target("splash:qwen3.8-27b")
+        import os
+        os.environ["SPLASH_URL"] = "http://localhost:9000/v1/chat/completions"
+        try:
+            self.assertEqual(bench.split_target("splash:qwen3.8-27b"), ("splash", "qwen3.8-27b"))
+            self.assertEqual(bench.engine_url("splash"), "http://localhost:9000/v1/chat/completions")
+        finally:
+            del os.environ["SPLASH_URL"]
+
+    def test_summary_names_the_engine(self):
+        rows = [{"model": "qwen/qwen3.6-27b@4bit", "backend": "mtplx", "mode": "no-think",
+                 "id": "a", "task": "mmlu", "correct": True, "latency_s": 1.0}]
+        [entry] = quality.summarise(rows)
+        self.assertEqual(entry["engine"], "mtplx")
+        # The target is the build id, so it joins onto the throughput row
+        # recorded under --label; only Apple's model keeps its prefix.
+        self.assertEqual(entry["target"], "qwen/qwen3.6-27b@4bit")
+        self.assertIs(quality.backend_for("lmstudio"), quality.ask_lmstudio)
+        self.assertTrue(callable(quality.backend_for("mtplx")))
+
+
 class ResumeTests(unittest.TestCase):
     def test_another_machines_answers_are_not_done_here(self):
         # A result file carried over from the old Mac records that Mac's

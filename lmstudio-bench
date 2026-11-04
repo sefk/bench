@@ -80,6 +80,27 @@ FM_PORT = 1976
 FM_HOST = f"http://localhost:{FM_PORT}"
 FM_CHAT_URL = f"{FM_HOST}/v1/chat/completions"
 
+# Other servers that speak the OpenAI chat-completions dialect -- MTPLX, Splash,
+# oMLX -- are addressed as `<engine>:<model>` and reached at `<ENGINE>_URL`
+# (e.g. MTPLX_URL), with a default only where the engine has a conventional
+# port. They report no perf counters we know how to read, so their rows carry
+# the client-side clocks only, which is what those clocks exist for. LM Studio
+# and `fm serve` keep their own paths: perf counters and token counting.
+ENGINE_URLS = {
+    "mtplx": "http://localhost:8000/v1/chat/completions",
+}
+
+
+def engine_url(engine):
+    url = os.environ.get(f"{engine.upper()}_URL") or ENGINE_URLS.get(engine)
+    if not url:
+        raise ValueError(
+            f"unknown engine {engine!r}: set {engine.upper()}_URL to its "
+            "chat-completions endpoint"
+        )
+    return url
+
+
 LMS_BIN = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / "lms")
 
 # Rough chars-per-token for English prose. Only used to size the filler prompt,
@@ -330,6 +351,11 @@ WARMUP_RUN_TOKENS = 512
 WARMUP_PATIENCE = 4
 WARMUP_TOLERANCE = 0.05
 
+# Sampling temperature for every request. 0 is the benchmark's baseline;
+# speculative decoders (MTPLX) accept fewer drafts at higher temperatures,
+# so their real-world rate is measured by raising it. Recorded on each row.
+TEMPERATURE = 0.0
+
 
 def warm_up_model(model, max_tokens, backend, verbose=False):
     """Generate until the decode rate stops improving, or the budget runs out.
@@ -538,11 +564,16 @@ def ensure_fm_server():
 
 
 def split_target(target):
-    """"fm:system" -> ("fm", "system"); anything else is an LM Studio id."""
-    backend, sep, model = target.partition(":")
-    if sep and backend in ("fm", "lmstudio"):
-        return backend, model
-    return "lmstudio", target
+    """"fm:system" -> ("fm", "system"), "mtplx:foo" -> ("mtplx", "foo"); a
+    bare id is an LM Studio model. An engine other than the two built in must
+    be reachable (see engine_url), so a typo fails here, not after a warm-up.
+    """
+    engine, sep, model = target.partition(":")
+    if not sep or "/" in engine:
+        return "lmstudio", target
+    if engine not in ("fm", "lmstudio"):
+        engine_url(engine)
+    return engine, model
 
 
 def one_run(model, prompt, max_tokens, backend="lmstudio"):
@@ -555,12 +586,17 @@ def one_run(model, prompt, max_tokens, backend="lmstudio"):
 
     `total_s` is the number the user actually waits: prompt in, last token out.
     """
-    url = FM_CHAT_URL if backend == "fm" else CHAT_URL
+    if backend == "fm":
+        url = FM_CHAT_URL
+    elif backend == "lmstudio":
+        url = CHAT_URL
+    else:
+        url = engine_url(backend)
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "temperature": 0,
+        "temperature": TEMPERATURE,
     }
     result = stream_request(url, payload)
 
@@ -632,7 +668,9 @@ def bench_model(target, sizes, runs, max_tokens, verbose, unload=True, power=Non
             unload_all()
     # With --no-unload the caller has already loaded exactly the instance it
     # wants -- typically a specific quantization variant, which JIT loading
-    # cannot select since the API exposes only base model ids.
+    # cannot select since the API exposes only base model ids. Another
+    # engine's model is loaded by that engine, but LM Studio is drained all
+    # the same: a resident model of its own would compete for the GPU.
     elif unload:
         unload_all()
 
@@ -719,8 +757,12 @@ def bench_model(target, sizes, runs, max_tokens, verbose, unload=True, power=Non
             "_window": (win_start, win_end) if power else None,
             "_generated": sum(s["completion_tokens"] for s in samples),
             "model": target,
+            # `backend` is the older name for the same thing; both are written
+            # so nothing that reads it breaks.
             "backend": backend,
+            "engine": backend,
             "machine": MACHINE,
+            "temperature": TEMPERATURE,
             "size": label,
             # A short prompt's ttft is mostly fixed overhead, so dividing by it
             # says nothing about prefill speed. Only report the rate for sizes
@@ -816,8 +858,10 @@ def main():
         "models",
         nargs="*",
         help="targets to benchmark: an LM Studio model id, optionally with a "
-        "variant (qwen/qwen3.6-27b@4bit), or Apple's on-device model as "
-        "fm:system. Default: every chat model LM Studio has.",
+        "variant (qwen/qwen3.6-27b@4bit), Apple's on-device model as "
+        "fm:system, or another OpenAI-compatible server as engine:model "
+        "(mtplx:..., or any engine with <ENGINE>_URL set). Default: every "
+        "chat model LM Studio has.",
     )
     parser.add_argument(
         "-n", "--runs", type=int, default=3, help="timed runs per size (default: 3)"
@@ -844,6 +888,11 @@ def main():
         "already loaded (use when the caller has selected a specific variant)",
     )
     parser.add_argument(
+        "--temperature", type=float, default=0.0,
+        help="sampling temperature (default: 0). Raise it to measure a "
+        "speculative decoder at the settings a coding agent would use",
+    )
+    parser.add_argument(
         "--label",
         help="name to record in results instead of the model id (e.g. a "
         "variant like qwen/qwen3.6-27b@4bit)",
@@ -860,6 +909,8 @@ def main():
         "-v", "--verbose", action="store_true", help="print each individual run"
     )
     args = parser.parse_args()
+    global TEMPERATURE
+    TEMPERATURE = args.temperature
 
     models = args.models or list_models()
     if not models:

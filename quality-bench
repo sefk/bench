@@ -96,6 +96,27 @@ LMSTUDIO_URL = "http://localhost:1234/api/v0/chat/completions"
 FM_PORT = 1976
 FM_URL = f"http://localhost:{FM_PORT}/v1/chat/completions"
 
+# Other servers that speak the OpenAI chat-completions dialect -- MTPLX, Splash,
+# oMLX -- are addressed as `<engine>:<model>` and reached at `<ENGINE>_URL`
+# (e.g. MTPLX_URL), with a default only where the engine has a conventional
+# port. They report no perf counters we know how to read, so their rows carry
+# the client-side clocks only, which is what those clocks exist for. LM Studio
+# and `fm serve` keep their own paths: perf counters and token counting.
+ENGINE_URLS = {
+    "mtplx": "http://localhost:8000/v1/chat/completions",
+}
+
+
+def engine_url(engine):
+    url = os.environ.get(f"{engine.upper()}_URL") or ENGINE_URLS.get(engine)
+    if not url:
+        raise ValueError(
+            f"unknown engine {engine!r}: set {engine.upper()}_URL to its "
+            "chat-completions endpoint"
+        )
+    return url
+
+
 # Qwen3 skips its reasoning pass if the assistant turn is already open with a
 # closed, empty think block. See the module docstring.
 NO_THINK_PREFILL = "<think>\n\n</think>\n\n"
@@ -607,7 +628,63 @@ def ask_fm(model, prompt, max_tokens, mode):
     }
 
 
+def ask_engine(engine):
+    """ask_lmstudio against another OpenAI-compatible server, by URL.
+
+    No served-model check: that guards against LM Studio's silent variant
+    substitution, and another server's id for a model need not match ours.
+    """
+    url = engine_url(engine)
+
+    def ask(model, prompt, max_tokens, mode):
+        messages = [{"role": "user", "content": prompt}]
+        if mode == "no-think":
+            messages.append({"role": "assistant", "content": NO_THINK_PREFILL})
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if mode.startswith("effort-"):
+            payload["reasoning_effort"] = mode.removeprefix("effort-")
+        for attempt in range(LMSTUDIO_RETRIES):
+            try:
+                raw = http_json(url, payload)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code not in (429, 500, 502, 503) or attempt == LMSTUDIO_RETRIES - 1:
+                    raise
+                time.sleep(LMSTUDIO_BACKOFF * (attempt + 1))
+            except (urllib.error.URLError, ConnectionError, TimeoutError):
+                if attempt == LMSTUDIO_RETRIES - 1:
+                    raise
+                time.sleep(LMSTUDIO_BACKOFF * (attempt + 1))
+        body = json.loads(raw)
+        choice = body["choices"][0]
+        usage = body.get("usage", {})
+        return {
+            "text": choice["message"].get("content") or "",
+            "finish_reason": choice.get("finish_reason"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get(
+                "reasoning_tokens"
+            ),
+            "prompt_tokens": usage.get("prompt_tokens"),
+        }
+
+    return ask
+
+
 BACKENDS = {"lmstudio": ask_lmstudio, "fm": ask_fm}
+
+
+def backend_for(engine):
+    """The ask() for a target's engine; any engine with a URL is accepted."""
+    if engine in BACKENDS:
+        return BACKENDS[engine]
+    return ask_engine(engine)
 
 
 # `fm serve` does not survive a long unattended run: it stops accepting
@@ -786,6 +863,7 @@ def summarise(rows):
         entry = {
             "model": model,
             "backend": backend,
+            "engine": backend,
             "target": target,
             "mode": mode,
             "machine": machine,
@@ -989,6 +1067,12 @@ def main():
         help="send this reasoning_effort instead of the no-think prefill; "
         "the default for models that cannot stop reasoning is low",
     )
+    ap.add_argument(
+        "--label",
+        help="record the model under this id instead of the server's own, so "
+        "a build served by another engine joins onto the same name as its "
+        "LM Studio run (one target per invocation)",
+    )
     ap.add_argument("--score", metavar="FILE", help="summarise an existing result file")
     ap.add_argument("--json", action="store_true", help="summary as JSON")
     ap.add_argument(
@@ -1032,8 +1116,16 @@ def main():
     try:
         for target in args.targets:
             backend, _, model = target.partition(":")
-            if backend not in BACKENDS:
-                sys.exit(f"unknown backend {backend!r} in {target!r}")
+            try:
+                ask = backend_for(backend)
+            except ValueError as exc:
+                sys.exit(f"{target!r}: {exc}")
+            # `served_model` goes to the server; `model` is what the rows say.
+            served_model = model
+            if args.label:
+                if len(args.targets) > 1:
+                    sys.exit("--label names one build: give one target")
+                model = args.label
             # Per target: a model that cannot stop reasoning runs in its own
             # mode, with budgets to match, alongside no-think targets.
             mode, budgets = resolve_mode(model, args.think, args.reasoning_effort)
@@ -1061,8 +1153,8 @@ def main():
                     prompt = build_prompt(item)
                     t0 = time.time()
                     try:
-                        reply = BACKENDS[backend](
-                            model, prompt, budgets[item["task"]], mode
+                        reply = ask(
+                            served_model, prompt, budgets[item["task"]], mode
                         )
                         error = None
                     except Exception as exc:  # noqa: BLE001 - recorded, not raised
@@ -1086,6 +1178,7 @@ def main():
                     record = {
                         "model": model,
                         "backend": backend,
+                        "engine": backend,
                         "machine": MACHINE,
                         "mode": mode,
                         "id": item["id"],

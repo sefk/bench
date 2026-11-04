@@ -5,7 +5,7 @@
     // questions: 4bit (MLX) and q4_k_m (GGUF) share a precision but not a
     // runtime, and the two differ by ~1.8x on decode.
     const FILTER_DIMS = [
-        "machine", "version", "arch", "quant", "precision", "runtime", "date",
+        "machine", "engine", "version", "arch", "quant", "precision", "runtime", "date",
     ];
     const SIZE_ORDER = ["short", "1000tok", "4000tok", "16000tok"];
     const TABS = ["quality", "speed", "table", "candidates", "vstoday", "vsclaude"];
@@ -35,13 +35,13 @@
     ];
 
     const TABLE_COLUMNS = [
-        "date", "machine", "variant", "version", "arch", "quant", "precision", "runtime", "size",
+        "date", "machine", "engine", "variant", "version", "arch", "quant", "precision", "runtime", "size",
         "prompt_tokens", "completion_tokens", "gen_tps", "prefill_tps",
         "ttft", "total_s", "quality_mode", "quality_pct", "quality_gsm8k", "quality_mmlu", "quality_code", "quality_code_16k",
         "ttft_spread", "watts", "tokens_per_wh",
     ];
     const TEXT_COLUMNS = new Set([
-        "date", "machine", "variant", "version", "arch", "quant", "precision", "runtime", "size", "quality_mode",
+        "date", "machine", "engine", "variant", "version", "arch", "quant", "precision", "runtime", "size", "quality_mode",
     ]);
 
     // A quality score from anything but no-think was measured differently --
@@ -360,15 +360,18 @@
         return row.family === "apple" ? "apple" : row.arch;
     }
 
-    // The machine is part of the label once results come from more than one.
+    // The machine and engine join the label once results span more than one.
     function shortLabel(row) {
-        const name = row.family === "apple" ? "Apple on-device" : String(row.variant).replace(/^qwen/, "");
-        return (state.meta.machine || []).length > 1 ? `${name} on ${row.machine}` : name;
+        let name = row.family === "apple" ? "Apple on-device" : String(row.variant).replace(/^qwen/, "");
+        if ((state.meta.engine || []).length > 1) name += ` / ${row.engine}`;
+        if ((state.meta.machine || []).length > 1) name += ` on ${row.machine}`;
+        return name;
     }
 
-    // A variant measured on two machines is two series, never one.
+    // A variant measured on two machines, or under two engines, is two
+    // series, never one.
     function variantKey(row) {
-        return `${row.variant}\u0000${row.machine}`;
+        return `${row.variant}\u0000${row.machine}\u0000${row.engine}`;
     }
 
     // The composite's interval and item count predate the per-task ones and

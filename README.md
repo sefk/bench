@@ -100,6 +100,32 @@ response and nothing else to mark the substitution. `lmstudio-bench` and
 fail loudly, because the alternative is filing one model's numbers under
 another model's name.
 
+#### Engines
+
+`runtime` says what the weights are (MLX or GGUF); `engine` says which server
+ran them. Both tools accept a target of `<engine>:<model>` for any server that
+speaks the OpenAI chat-completions dialect, reached at `<ENGINE>_URL`
+(`MTPLX_URL` defaults to MTPLX's port 8000; others must be set):
+
+```sh
+./lmstudio-bench mtplx:mtplx-flash-next-optimized-speed --label qwen/qwen3.8-flash-next@4bit
+./lmstudio-bench mtplx:mtplx-flash-next-optimized-speed --temperature 0.6 ...
+SPLASH_URL=http://localhost:9000/v1/chat/completions ./lmstudio-bench splash:qwen3.8-27b
+./quality-bench mtplx:mtplx-flash-next-optimized-speed --label qwen/qwen3.8-flash-next@4bit -o ...
+```
+
+Such servers report no perf counters this tool knows how to read, so their
+rows carry the client-side clocks only: `gen_tps` is `decode_tps`, measured at
+the socket. Compare engines on those clocks. `--label` records the build under
+the id its LM Studio run uses, so the two engines line up as one variant in
+the dashboard (`engine` is a filter, a column and a series-by choice there);
+`--temperature` is recorded on every row, since a speculative decoder's rate
+depends on it. Rows without an `engine` field predate it and are read as
+`lmstudio`, or `fm` for Apple's model. LM Studio is drained before another
+engine is benchmarked, but that engine's own model is yours to load first and
+to stop afterwards -- and on one machine, stop it before benchmarking LM
+Studio, or the loser's numbers are about swap.
+
 #### Machines
 
 Results now come from more than one Mac, so every row records the hardware
