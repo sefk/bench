@@ -76,6 +76,10 @@ def load_new_mac(path: Path = NEW_MAC_PATH) -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     return {k: v for k, v in data.items() if not k.startswith("_")}
+# Rows and quality entries written before results spanned machines carry no
+# `machine` field; everything then was measured on the M1 Max.
+LEGACY_MACHINE = "M1 Max 64 GB"
+
 _FACT_FIELDS = ("arch", "params", "active", "version")
 
 
@@ -204,8 +208,8 @@ def _quality_field(task: str, max_tokens: int | None) -> str:
 JOINED_MODES = ("no-think", "effort-low")
 
 
-def load_quality(results_dir: Path) -> dict[str, dict]:
-    """Map target id -> quality scores, from `quality*.json` summary files.
+def load_quality(results_dir: Path) -> dict[tuple[str, str], dict]:
+    """Map (target id, machine) -> quality scores, from `quality*.json` files.
 
     Only the modes in JOINED_MODES are joined, and a target's no-think scores
     win over any other mode it was also run in. Scores from a reasoning-mode
@@ -233,6 +237,7 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
             target = entry.get("target") or entry.get("model")
             if not target:
                 continue
+            key = (target, entry.get("machine", LEGACY_MACHINE))
             fields = {"quality_mode": mode}
             composite = entry.get("composite")
             if composite:
@@ -258,14 +263,14 @@ def load_quality(results_dir: Path) -> dict[str, dict]:
                 # answers truncated under the smaller one: the score is a
                 # lower bound, and the dashboard says so.
                 fields[f"{name}_pending"] = scored.get("pending") or 0
-            by_mode.setdefault(target, {}).setdefault(mode, {}).update(fields)
+            by_mode.setdefault(key, {}).setdefault(mode, {}).update(fields)
 
     # One mode per target, never a mix: a no-think composite beside an
     # effort-low code score would be two measurements under one label.
-    scores: dict[str, dict] = {}
-    for target, modes in by_mode.items():
+    scores: dict[tuple[str, str], dict] = {}
+    for key, modes in by_mode.items():
         best = next(m for m in JOINED_MODES if m in modes)
-        scores[target] = modes[best]
+        scores[key] = modes[best]
     return scores
 
 
@@ -310,13 +315,14 @@ def _read_rows(results_dir: Path) -> list[dict]:
             row = dict(raw_row)
             row["date"] = date
             row["source_file"] = path.name
+            row.setdefault("machine", LEGACY_MACHINE)
             model = row.get("model", "")
             row.update(derive_dimensions(model))
             rows.append(row)
 
     quality = load_quality(results_dir)
     for row in rows:
-        row.update(quality.get(row.get("model", ""), {}))
+        row.update(quality.get((row.get("model", ""), row["machine"]), {}))
     return rows
 
 
@@ -335,7 +341,7 @@ MEASURES = [
 ]
 
 DIMENSIONS = [
-    "version", "arch", "quant", "precision", "runtime", "date", "variant",
+    "machine", "version", "arch", "quant", "precision", "runtime", "date", "variant",
 ]
 
 SIZE_ORDER = ["short", "1000tok", "4000tok", "16000tok"]

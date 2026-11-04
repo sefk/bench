@@ -5,10 +5,13 @@
     // questions: 4bit (MLX) and q4_k_m (GGUF) share a precision but not a
     // runtime, and the two differ by ~1.8x on decode.
     const FILTER_DIMS = [
-        "version", "arch", "quant", "precision", "runtime", "date",
+        "machine", "version", "arch", "quant", "precision", "runtime", "date",
     ];
     const SIZE_ORDER = ["short", "1000tok", "4000tok", "16000tok"];
     const TABS = ["quality", "speed", "table", "candidates", "vstoday", "vsclaude"];
+    // The "Today" machine on the New Mac tabs. Now that results come from the
+    // new machine too, only the old one's rows belong in that column.
+    const TODAY_MACHINE = "M1 Max 64 GB";
     const PALETTE = [
         "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed",
         "#0891b2", "#db2777", "#65a30d", "#ea580c", "#4f46e5",
@@ -32,13 +35,13 @@
     ];
 
     const TABLE_COLUMNS = [
-        "date", "variant", "version", "arch", "quant", "precision", "runtime", "size",
+        "date", "machine", "variant", "version", "arch", "quant", "precision", "runtime", "size",
         "prompt_tokens", "completion_tokens", "gen_tps", "prefill_tps",
         "ttft", "total_s", "quality_mode", "quality_pct", "quality_gsm8k", "quality_mmlu", "quality_code", "quality_code_16k",
         "ttft_spread", "watts", "tokens_per_wh",
     ];
     const TEXT_COLUMNS = new Set([
-        "date", "variant", "version", "arch", "quant", "precision", "runtime", "size", "quality_mode",
+        "date", "machine", "variant", "version", "arch", "quant", "precision", "runtime", "size", "quality_mode",
     ]);
 
     // A quality score from anything but no-think was measured differently --
@@ -357,9 +360,15 @@
         return row.family === "apple" ? "apple" : row.arch;
     }
 
+    // The machine is part of the label once results come from more than one.
     function shortLabel(row) {
-        if (row.family === "apple") return "Apple on-device";
-        return String(row.variant).replace(/^qwen/, "");
+        const name = row.family === "apple" ? "Apple on-device" : String(row.variant).replace(/^qwen/, "");
+        return (state.meta.machine || []).length > 1 ? `${name} on ${row.machine}` : name;
+    }
+
+    // A variant measured on two machines is two series, never one.
+    function variantKey(row) {
+        return `${row.variant}\u0000${row.machine}`;
     }
 
     // The composite's interval and item count predate the per-task ones and
@@ -384,8 +393,8 @@
         for (const row of rows) {
             if (row.size !== state.qSize) continue;
             if (!isNum(row[speedKey]) || !isNum(row[qualityKey])) continue;
-            if (!byVariant.has(row.variant)) byVariant.set(row.variant, []);
-            byVariant.get(row.variant).push(row);
+            if (!byVariant.has(variantKey(row))) byVariant.set(variantKey(row), []);
+            byVariant.get(variantKey(row)).push(row);
         }
 
         const points = [];
@@ -767,7 +776,7 @@
     function candidateSpeed(nm, c, key) {
         if (key === "today") {
             if (!c.today_base) return null;
-            const mine = state.rows.filter((r) => r.size === state.tSize &&
+            const mine = state.rows.filter((r) => r.size === state.tSize && r.machine === TODAY_MACHINE &&
                 String(r.variant).split("@")[0] === c.today_base && isNum(r.gen_tps));
             if (!mine.length) return null;
             const best = latestPerVariant(mine).reduce((a, b) => (b.gen_tps > a.gen_tps ? b : a));
@@ -850,7 +859,8 @@
         const todayLabel = "Today (M1 Max)";
         for (const c of nm.candidates) {
             if (!c.today_base) continue;
-            const mine = state.rows.filter((r) => r.size === state.tSize && String(r.variant).split("@")[0] === c.today_base);
+            const mine = state.rows.filter((r) => r.size === state.tSize && r.machine === TODAY_MACHINE &&
+                String(r.variant).split("@")[0] === c.today_base);
             for (const row of latestPerVariant(mine)) {
                 rows.push({
                     sort: { name: c.name, machine: todayLabel, decode: row.gen_tps, prefill: row.prefill_tps, basis: "measured" },
@@ -1027,8 +1037,8 @@
     function latestPerVariant(rows) {
         const latest = new Map();
         for (const row of rows) {
-            const seen = latest.get(row.variant);
-            if (!seen || row.date > seen.date) latest.set(row.variant, row);
+            const seen = latest.get(variantKey(row));
+            if (!seen || row.date > seen.date) latest.set(variantKey(row), row);
         }
         return [...latest.values()];
     }

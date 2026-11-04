@@ -270,6 +270,31 @@ class CodeToleranceParsingTests(unittest.TestCase):
 
 
 class ResumeTests(unittest.TestCase):
+    def test_another_machines_answers_are_not_done_here(self):
+        # A result file carried over from the old Mac records that Mac's
+        # answers; on this one every item is still pending.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.jsonl"
+            path.write_text(
+                json.dumps({"model": "m", "mode": "no-think", "id": "a",
+                            "correct": True, "error": None}) + "\n"
+                + json.dumps({"model": "m", "mode": "no-think", "id": "b",
+                              "machine": "M5 Max 128 GB", "correct": True, "error": None}) + "\n"
+            )
+            done, _ = quality.load_done(path)
+            self.assertEqual(done, {("m", "no-think", quality.LEGACY_MACHINE, "a"),
+                                    ("m", "no-think", "M5 Max 128 GB", "b")})
+
+    def test_summaries_are_per_machine(self):
+        rows = [
+            {"model": "m", "mode": "no-think", "id": "a", "task": "mmlu", "correct": True,
+             "latency_s": 1.0},
+            {"model": "m", "mode": "no-think", "id": "a", "task": "mmlu", "correct": False,
+             "machine": "M5 Max 128 GB", "latency_s": 0.5},
+        ]
+        by_machine = {s["machine"]: s["mmlu"]["pct"] for s in quality.summarise(rows)}
+        self.assertEqual(by_machine, {quality.LEGACY_MACHINE: 100.0, "M5 Max 128 GB": 0.0})
+
     def test_errored_items_are_retried_but_good_ones_are_not(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "r.jsonl"
@@ -280,8 +305,8 @@ class ResumeTests(unittest.TestCase):
                               "correct": False, "error": "URLError"}) + "\n"
             )
             done, rows = quality.load_done(path)
-            self.assertIn(("m", "no-think", "a"), done)
-            self.assertNotIn(("m", "no-think", "b"), done, "errored item must retry")
+            self.assertIn(("m", "no-think", quality.LEGACY_MACHINE, "a"), done)
+            self.assertNotIn(("m", "no-think", quality.LEGACY_MACHINE, "b"), done, "errored item must retry")
             self.assertEqual(len(rows), 2)
 
     def test_truncated_items_retry_under_a_larger_budget(self):
@@ -299,8 +324,8 @@ class ResumeTests(unittest.TestCase):
                               "max_tokens": 512, "error": None}) + "\n"
             )
             done, _ = quality.load_done(path, {"gsm8k": 1536})
-            self.assertNotIn(("m", "no-think", "a"), done, "truncated must retry")
-            self.assertIn(("m", "no-think", "b"), done, "finished must not retry")
+            self.assertNotIn(("m", "no-think", quality.LEGACY_MACHINE, "a"), done, "truncated must retry")
+            self.assertIn(("m", "no-think", quality.LEGACY_MACHINE, "b"), done, "finished must not retry")
 
     def test_score_records_the_budget_it_reflects(self):
         """After a 16k resume, finished 4k rows sit beside retried 16k ones;
@@ -321,7 +346,7 @@ class ResumeTests(unittest.TestCase):
                             "max_tokens": 1536, "error": None}) + "\n"
             )
             done, _ = quality.load_done(path, {"gsm8k": 1536})
-            self.assertIn(("m", "no-think", "a"), done)
+            self.assertIn(("m", "no-think", quality.LEGACY_MACHINE, "a"), done)
 
     def test_rows_predating_the_budget_field_use_the_old_cap(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -332,7 +357,7 @@ class ResumeTests(unittest.TestCase):
                             "error": None}) + "\n"
             )
             done, _ = quality.load_done(path, {"gsm8k": 1536})
-            self.assertNotIn(("m", "no-think", "a"), done)
+            self.assertNotIn(("m", "no-think", quality.LEGACY_MACHINE, "a"), done)
 
     def test_a_retry_supersedes_the_failure_it_replaces(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -344,7 +369,7 @@ class ResumeTests(unittest.TestCase):
                               "correct": True, "error": None}) + "\n"
             )
             done, rows = quality.load_done(path)
-            self.assertIn(("m", "no-think", "b"), done)
+            self.assertIn(("m", "no-think", quality.LEGACY_MACHINE, "b"), done)
             self.assertEqual(len(rows), 1, "last record for an item wins")
             self.assertTrue(rows[0]["correct"])
 

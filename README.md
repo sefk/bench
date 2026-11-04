@@ -100,6 +100,20 @@ response and nothing else to mark the substitution. `lmstudio-bench` and
 fail loudly, because the alternative is filing one model's numbers under
 another model's name.
 
+#### Machines
+
+Results now come from more than one Mac, so every row records the hardware
+it was measured on as `machine` (`M5 Max 128 GB`, from `sysctl`). Rows and
+quality summaries written before 2026-11-04 have no such field; the dashboard
+reads them as `M1 Max 64 GB`, which is where all of them were run. Quality
+scores join onto throughput rows per machine, so a build scored on both Macs
+shows each machine's own score, and `quality-bench` resumes per machine: a
+result file carried over from the old Mac is not a head start on the new one.
+
+The dashboard offers `machine` as a filter, a table column and a series-by
+choice on the speed tab, which is the M1-vs-M5 view for any variant run on
+both.
+
 ### Quality: `quality-bench`
 
 Published benchmark scores describe a model at full precision on someone else's

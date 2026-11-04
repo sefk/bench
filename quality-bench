@@ -738,6 +738,30 @@ def _score(rows):
     }
 
 
+def machine_id():
+    """The hardware these numbers are about, e.g. ``M5 Max 128 GB``.
+
+    Recorded on every row now that results span machines. A row with no
+    `machine` field predates this and was measured on the M1 Max 64 GB; the
+    dashboard's loader fills that in.
+    """
+    try:
+        chip = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip().removeprefix("Apple ")
+        mem = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, check=False
+        ).stdout.strip()
+        return f"{chip} {round(int(mem) / 2**30)} GB"
+    except (OSError, ValueError):
+        return "unknown"
+
+
+MACHINE = machine_id()
+LEGACY_MACHINE = "M1 Max 64 GB"
+
+
 def summarise(rows):
     """Collapse per-item records into one summary per (model, mode).
 
@@ -750,10 +774,11 @@ def summarise(rows):
     groups = {}
     for row in rows:
         backend = row.get("backend", "lmstudio")
-        groups.setdefault((backend, row["model"], row.get("mode", "no-think")), []).append(row)
+        machine = row.get("machine", LEGACY_MACHINE)
+        groups.setdefault((backend, row["model"], row.get("mode", "no-think"), machine), []).append(row)
 
     summaries = []
-    for (backend, model, mode), items in sorted(groups.items()):
+    for (backend, model, mode, machine), items in sorted(groups.items()):
         # `target` is the same string the perf benchmark records in its
         # `model` field, so the dashboard can join quality onto throughput
         # without a second naming convention to keep in sync.
@@ -763,6 +788,7 @@ def summarise(rows):
             "backend": backend,
             "target": target,
             "mode": mode,
+            "machine": machine,
             "n": len(items),
         }
         for task in TASKS:
@@ -855,7 +881,7 @@ def load_done(path, budgets=None):
         if not line.strip():
             continue
         row = json.loads(line)
-        key = (row["model"], row.get("mode", "no-think"), row["id"])
+        key = (row["model"], row.get("mode", "no-think"), row.get("machine", LEGACY_MACHINE), row["id"])
         by_key[key] = row
         if row.get("error") or _budget_was_raised(row, budgets):
             done.discard(key)
@@ -1019,7 +1045,9 @@ def main():
             else:
                 unload_lmstudio()
 
-            pending = [i for i in items if (model, mode, i["id"]) not in done]
+            # Keyed by machine too: a file carried over from another Mac
+            # holds that Mac's answers, not a head start on this one.
+            pending = [i for i in items if (model, mode, MACHINE, i["id"]) not in done]
             print(
                 f"\n=== {target} [{mode}] {len(pending)} items "
                 f"({len(items) - len(pending)} already done) ===",
@@ -1058,6 +1086,7 @@ def main():
                     record = {
                         "model": model,
                         "backend": backend,
+                        "machine": MACHINE,
                         "mode": mode,
                         "id": item["id"],
                         "task": item["task"],

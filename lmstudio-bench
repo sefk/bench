@@ -387,6 +387,30 @@ def warm_up_model(model, max_tokens, backend, verbose=False):
     return rates, False
 
 
+def machine_id():
+    """The hardware these numbers are about, e.g. ``M5 Max 128 GB``.
+
+    Recorded on every row now that results span machines. A row with no
+    `machine` field predates this and was measured on the M1 Max 64 GB; the
+    dashboard's loader fills that in.
+    """
+    try:
+        chip = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip().removeprefix("Apple ")
+        mem = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, check=False
+        ).stdout.strip()
+        return f"{chip} {round(int(mem) / 2**30)} GB"
+    except (OSError, ValueError):
+        return "unknown"
+
+
+MACHINE = machine_id()
+LEGACY_MACHINE = "M1 Max 64 GB"
+
+
 def free_memory_gb():
     """Free physical memory, in GB, from vm_stat.
 
@@ -696,6 +720,7 @@ def bench_model(target, sizes, runs, max_tokens, verbose, unload=True, power=Non
             "_generated": sum(s["completion_tokens"] for s in samples),
             "model": target,
             "backend": backend,
+            "machine": MACHINE,
             "size": label,
             # A short prompt's ttft is mostly fixed overhead, so dividing by it
             # says nothing about prefill speed. Only report the rate for sizes

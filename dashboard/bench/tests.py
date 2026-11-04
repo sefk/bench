@@ -4,7 +4,7 @@ from pathlib import Path
 
 from django.test import SimpleTestCase, override_settings
 
-from .loader import build_meta, derive_dimensions, load_quality, load_rows
+from .loader import LEGACY_MACHINE, build_meta, derive_dimensions, load_quality, load_rows
 
 
 class DeriveDimensionsTests(SimpleTestCase):
@@ -165,7 +165,20 @@ class LoaderTests(SimpleTestCase):
         meta = build_meta(rows)
         self.assertIn("version", meta)
         self.assertIn("3.6", meta["version"])
+        self.assertEqual(meta["machine"], [LEGACY_MACHINE])
         self.assertTrue(any(m["key"] == "gen_tps" for m in meta["measures"]))
+
+    def test_rows_without_a_machine_are_the_old_mac(self):
+        # Rows written before results spanned machines have no `machine`
+        # field; a recorded one is kept as is.
+        date_dir = self.results_dir / "2026-11-04"
+        date_dir.mkdir()
+        (date_dir / "new.json").write_text(json.dumps([
+            {"model": "qwen/qwen3.6-27b@4bit", "size": "1000tok", "sized": True,
+             "gen_tps": 40.0, "machine": "M5 Max 128 GB"},
+        ]))
+        machines = {row["date"]: row["machine"] for row in load_rows(self.results_dir, force=True)}
+        self.assertEqual(machines, {"2026-08-03": LEGACY_MACHINE, "2026-11-04": "M5 Max 128 GB"})
 
 
 class QualityJoinTests(SimpleTestCase):
@@ -249,6 +262,26 @@ class QualityJoinTests(SimpleTestCase):
         rows = load_rows(self.results_dir, force=True)
         self.assertEqual(len(rows), 2, "quality.json must not become rows")
 
+    def test_quality_joins_per_machine(self):
+        # The same build scored on another machine is that machine's score:
+        # it joins onto that machine's rows and nobody else's.
+        date_dir = self.results_dir / "2026-11-04"
+        date_dir.mkdir()
+        (date_dir / "qwen3.6-27b-4bit.json").write_text(json.dumps([
+            {"model": "qwen/qwen3.6-27b@4bit", "size": "1000tok", "sized": True,
+             "gen_tps": 40.0, "machine": "M5 Max 128 GB"},
+        ]))
+        (date_dir / "quality.json").write_text(json.dumps([
+            {"model": "qwen/qwen3.6-27b@4bit", "backend": "lmstudio",
+             "target": "qwen/qwen3.6-27b@4bit", "mode": "no-think",
+             "machine": "M5 Max 128 GB",
+             "composite": {"pct": 74.0, "ci95": [70.7, 77.1], "n": 750}},
+        ]))
+        by_machine = {r["machine"]: r for r in load_rows(self.results_dir, force=True)
+                      if r["model"] == "qwen/qwen3.6-27b@4bit"}
+        self.assertAlmostEqual(by_machine[LEGACY_MACHINE]["quality_pct"], 73.3)
+        self.assertAlmostEqual(by_machine["M5 Max 128 GB"]["quality_pct"], 74.0)
+
     def test_quality_joins_onto_throughput_rows(self):
         rows = {r["model"]: r for r in load_rows(self.results_dir, force=True)}
         self.assertAlmostEqual(rows["qwen/qwen3.6-27b@4bit"]["quality_pct"], 73.3)
@@ -257,9 +290,9 @@ class QualityJoinTests(SimpleTestCase):
         self.assertAlmostEqual(rows["fm:system"]["quality_mmlu"], 50.0)
 
     def test_think_mode_scores_are_excluded(self):
-        scores = load_quality(self.results_dir)
-        self.assertAlmostEqual(scores["qwen/qwen3.6-27b@4bit"]["quality_pct"], 73.3)
-        self.assertEqual(scores["qwen/qwen3.6-27b@4bit"]["quality_mode"], "no-think")
+        scores = load_quality(self.results_dir)[("qwen/qwen3.6-27b@4bit", LEGACY_MACHINE)]
+        self.assertAlmostEqual(scores["quality_pct"], 73.3)
+        self.assertEqual(scores["quality_mode"], "no-think")
 
     def _write_quality(self, name, entries):
         (self.results_dir / "2026-09-14" / name).write_text(json.dumps(entries))
@@ -272,7 +305,7 @@ class QualityJoinTests(SimpleTestCase):
             "target": "openai/gpt-oss-20b@mxfp4", "mode": "effort-low",
             "composite": {"pct": 80.0, "ci95": [77.0, 82.7], "n": 750},
         }])
-        scores = load_quality(self.results_dir)["openai/gpt-oss-20b@mxfp4"]
+        scores = load_quality(self.results_dir)[("openai/gpt-oss-20b@mxfp4", LEGACY_MACHINE)]
         self.assertAlmostEqual(scores["quality_pct"], 80.0)
         self.assertEqual(scores["quality_mode"], "effort-low")
 
@@ -284,7 +317,7 @@ class QualityJoinTests(SimpleTestCase):
             "target": "qwen/qwen3.6-27b@4bit", "mode": "effort-low",
             "code": {"pct": 90.0, "ci95": [85.0, 93.0], "n": 175},
         }])
-        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        scores = load_quality(self.results_dir)[("qwen/qwen3.6-27b@4bit", LEGACY_MACHINE)]
         self.assertEqual(scores["quality_mode"], "no-think")
         self.assertAlmostEqual(scores["quality_pct"], 73.3)
         self.assertNotIn("quality_code", scores)
@@ -305,7 +338,7 @@ class QualityJoinTests(SimpleTestCase):
                 ]
             )
         )
-        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        scores = load_quality(self.results_dir)[("qwen/qwen3.6-27b@4bit", LEGACY_MACHINE)]
         self.assertAlmostEqual(scores["quality_code"], 40.0)
         self.assertAlmostEqual(scores["quality_code_ci_low"], 33.0)
         self.assertAlmostEqual(scores["quality_pct"], 73.3)
@@ -322,7 +355,7 @@ class QualityJoinTests(SimpleTestCase):
                 "code": {"pct": pct, "ci95": [pct - 7, pct + 7], "n": 175,
                          "max_tokens": budget},
             }]))
-        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        scores = load_quality(self.results_dir)[("qwen/qwen3.6-27b@4bit", LEGACY_MACHINE)]
         self.assertAlmostEqual(scores["quality_code"], 36.0)
         self.assertAlmostEqual(scores["quality_code_16k"], 52.0)
         self.assertAlmostEqual(scores["quality_code_16k_ci_low"], 45.0)
@@ -337,7 +370,7 @@ class QualityJoinTests(SimpleTestCase):
                 "code": {"pct": 53.1, "ci95": [45.6, 60.4], "n": 175,
                          "max_tokens": 16384, "pending": 31},
             }]))
-        scores = load_quality(self.results_dir)["qwen/qwen3.6-27b@4bit"]
+        scores = load_quality(self.results_dir)[("qwen/qwen3.6-27b@4bit", LEGACY_MACHINE)]
         self.assertEqual(scores["quality_code_16k_pending"], 31)
 
     def test_scatter_measures_available(self):
