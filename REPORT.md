@@ -396,18 +396,74 @@ rules out keeping 27B resident alongside. A 96 GB Mac would not run this model
 at all. The Max over the Ultra was argued on capacity, and this is the model
 that proves it.
 
+### DwarfStar: 2-bit Flash-Next loses nothing measurable
+
+[DwarfStar (ds4)][ds4], antirez's C inference engine, ships its own GGUF
+packs of Flash-Next: Q2 (imatrix IQ2_XXS/Q2_K experts, 41.7 GiB resident) and
+Q4 (Q4_K/MXFP4 experts, 69.7 GiB). Both keep the 95 GiB n-gram table on SSD
+and read rows on demand. The question was whether 2-bit experts cost enough
+quality to matter, because 42 GiB resident is the difference between
+Flash-Next alone and Flash-Next with room to spare.
+
+Quality on the fixed 750-item set, no-think, and LiveCodeBench at a 4k budget:
+
+| Build | Resident | GSM8K | MMLU | Composite | LiveCodeBench 4k |
+|---|---|---|---|---|---|
+| ds4 Q4_K | 70 GiB | 97.6% | 84.8% | **89.1%** [86.6–91.1] | — |
+| ds4 IQ2_XXS | 42 GiB | 98.0% | 82.4% | 87.6% [85.0–89.8] | **54.3%** (71 truncated) |
+| MTPLX 4-bit dyn | 87 GiB | 96.8% | 81.2% | 86.4% [83.8–88.7] | 45.7% (93 truncated) |
+
+The three composites sit inside each other's intervals. Q4 over Q2 is +1.5,
+in the expected direction and inside the noise; the 2-bit pack is not
+measurably worse than either 4-bit on knowledge or arithmetic. On code the
+headline gap runs the other way, and it is entirely truncation: MTPLX's
+answers hit the 4k ceiling on 93 problems against ds4's 71 (median
+completion 4,096 tokens against 2,475), and on the 75 problems both finished
+within budget they score 72 and 71. That is a difference in how long the
+two routes talk, not in what the weights know; the 16k re-run of the
+truncated answers would settle it, and is the next run.
+
+Speed on ds4, temperature 0 (decode; prefill in parentheses):
+
+| Prompt | Q2 | Q2 `--mtp` | Q4 | Q4 `--mtp` |
+|---|---|---|---|---|
+| short | 60 | 79 | 57 | 75 |
+| 1,000 | 59 (1,050) | 73 (1,060) | 57 (1,112) | 68 (1,118) |
+| 4,000 | 57 (1,313) | 71 (1,323) | 56 (1,306) | 67 (1,262) |
+| 16,000 | 57 (1,492) | 72 (1,516) | 55 (1,483) | 68 (1,483) |
+
+Flat across context, unlike MTPLX, and Q2 is only 4% faster than Q4: on ds4
+the 2-bit pack buys memory, not speed. With `--mtp` (its speculative decoding
+off the model's own MTP head) it reaches 71 tok/s at a 4k prompt, level with
+MTPLX's 4-bit at the same prompt, with half the memory resident.
+
+So, on this machine, the Flash-Next ranking is: ds4 Q2 with `--mtp` for
+headroom at no measured quality cost; ds4 Q4 when the 28 GiB is spare, for
+the best measured quality (it matches Qwen3.6-27B's 89.6% on this set at
+twice the decode speed); MTPLX when its client integrations matter more than
+the memory. LM Studio is not in the running for this model.
+
+Caveats specific to this comparison: the no-think route differs by engine
+(ds4's `-no-think` model alias, MTPLX's `--reasoning off` plus an empty
+think prefill), ds4 is beta, and the 1–2 point composite differences are
+below what 750 items resolve.
+
+[ds4]: https://github.com/antirez/ds4
+
 ### Takeaways
 
-- **Flash-Next on MTPLX Optimized Speed is the daily driver.** ~70 tok/s with
-  context, ~1,900 tok/s prefill at 16k, the best coding score that fits.
+- **Flash-Next on ds4 Q2 with `--mtp` is the daily driver.** ~71 tok/s with
+  context, 42 GiB resident, no measured quality loss against 4-bit, and 80 GB
+  left for context or a second model. ds4 Q4 when the memory is spare; MTPLX
+  (~70 tok/s, 87 GiB) when its integrations matter.
 - **Everything measured on the M1 is simply ~2× decode and ~10× prefill here**,
   with the same quality ordering, so the M1 takeaways above still hold for
   the LM Studio builds.
-- **Not measured yet:** whether MTPLX's output matches a plain run of the same
-  weights (its "exact" claim; `quality-bench` can check it on 27B, where LM
-  Studio is healthy), what raising `iogpu.wired_limit_mb` buys at long context,
-  and whether a 2-bit Flash-Next (DwarfStar's 42 GiB build) keeps enough
-  quality to be worth the 60 GB of headroom.
+- **Not measured yet:** the 16k re-run of the truncated code answers (the
+  fair ds4-vs-MTPLX code score), whether MTPLX's output matches a plain run
+  of the same weights (its "exact" claim; `quality-bench` can check it on 27B,
+  where LM Studio is healthy), and what raising `iogpu.wired_limit_mb` buys
+  at long context.
 
 [mtplx]: https://github.com/youssofal/MTPLX
 
@@ -665,3 +721,24 @@ the 111 GB Flash-Next pack and is off in its settings.
 Learned: decode 1.8–2.2× the M1, prefill 9–11×; Flash-Next under MTPLX is 3×
 LM Studio on the same weights and ~70 tok/s with a loaded context; the machine
 has 1–6 GB free with it resident.
+
+### 2026-11-05 — DwarfStar's 2-bit and 4-bit Flash-Next, overnight
+
+ds4 built from `b3f5018` at `~/src/ds4`, its Q2 (137 GiB) and Q4 (165 GiB)
+packs on the internal SSD. Overnight pipeline: GSM8K+MMLU on MTPLX Optimized
+(reasoning off), ds4 Q2 and ds4 Q4; speed on both ds4 packs with and without
+`--mtp`; LiveCodeBench at 4k on MTPLX and ds4 Q2. About five hours. Raw data
+in `results/2026-11-05/`.
+
+Two harness bugs, both now failing loudly: `quality-bench`'s empty-think
+assistant prefill is a finished turn to ds4, which then generated
+`<|im_start|>user` for all 750 items (the prefill is now per engine, and an
+answer of chat-template tokens is an error, not a zero); and the pipeline
+killed a subshell instead of the ds4 server, so the `--mtp` run was answered
+by the plain one (`exec`). Both runs were redone.
+
+Learned: 2-bit experts cost nothing this set can measure (87.6% against 89.1%
+for Q4 and 86.4% for MTPLX's 4-bit, all inside each other's intervals); on
+code the 8.6-point gap over MTPLX is answer length and truncation, not
+weights (72 against 71 on the problems both finished). ds4 decodes flat
+across context, Q2 only 4% faster than Q4, and `--mtp` adds 1.25–1.3×.
