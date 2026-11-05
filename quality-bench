@@ -635,10 +635,16 @@ def ask_engine(engine):
     substitution, and another server's id for a model need not match ours.
     """
     url = engine_url(engine)
+    # The empty-think prefill is an open assistant turn for LM Studio and MTPLX
+    # to continue. ds4 renders a trailing assistant message as a *finished*
+    # turn and generates the next one -- 750 answers of "<|im_start|>user".
+    # Such a server gets <ENGINE>_PREFILL=0 and its own no-think switch (ds4:
+    # the `qwen3.8-flash-next-no-think` model alias).
+    prefill = os.environ.get(f"{engine.upper()}_PREFILL", "1") != "0"
 
     def ask(model, prompt, max_tokens, mode):
         messages = [{"role": "user", "content": prompt}]
-        if mode == "no-think":
+        if mode == "no-think" and prefill:
             messages.append({"role": "assistant", "content": NO_THINK_PREFILL})
         payload = {
             "model": model,
@@ -664,8 +670,14 @@ def ask_engine(engine):
         body = json.loads(raw)
         choice = body["choices"][0]
         usage = body.get("usage", {})
+        text = choice["message"].get("content") or ""
+        if text.lstrip().startswith("<|im_start|>"):
+            raise RuntimeError(
+                f"{engine} answered with chat-template tokens ({text[:40]!r}): "
+                f"it is continuing past the prefill; set {engine.upper()}_PREFILL=0"
+            )
         return {
-            "text": choice["message"].get("content") or "",
+            "text": text,
             "finish_reason": choice.get("finish_reason"),
             "completion_tokens": usage.get("completion_tokens"),
             "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get(

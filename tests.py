@@ -318,6 +318,40 @@ class EngineTests(unittest.TestCase):
         finally:
             del os.environ["SPLASH_URL"]
 
+    def test_engine_prefill_can_be_switched_off(self):
+        import os
+        sent = {}
+
+        def fake_http_json(url, payload, timeout=0):
+            sent["messages"] = payload["messages"]
+            return json.dumps({"choices": [{"message": {"content": "B"}, "finish_reason": "stop"}], "usage": {}})
+
+        original = quality.http_json
+        quality.http_json = fake_http_json
+        os.environ["FAKE_URL"] = "http://localhost:1/v1/chat/completions"
+        try:
+            quality.ask_engine("fake")("m", "q?", 8, "no-think")
+            self.assertEqual([m["role"] for m in sent["messages"]], ["user", "assistant"])
+            os.environ["FAKE_PREFILL"] = "0"
+            quality.ask_engine("fake")("m", "q?", 8, "no-think")
+            self.assertEqual([m["role"] for m in sent["messages"]], ["user"])
+        finally:
+            quality.http_json = original
+            os.environ.pop("FAKE_URL"); os.environ.pop("FAKE_PREFILL", None)
+
+    def test_chat_template_tokens_in_an_answer_fail_loudly(self):
+        import os
+        original = quality.http_json
+        quality.http_json = lambda url, payload, timeout=0: json.dumps(
+            {"choices": [{"message": {"content": "<|im_start|>user\n"}, "finish_reason": "stop"}], "usage": {}})
+        os.environ["FAKE_URL"] = "http://localhost:1/v1/chat/completions"
+        try:
+            with self.assertRaises(RuntimeError):
+                quality.ask_engine("fake")("m", "q?", 8, "no-think")
+        finally:
+            quality.http_json = original
+            os.environ.pop("FAKE_URL")
+
     def test_summary_names_the_engine(self):
         rows = [{"model": "qwen/qwen3.6-27b@4bit", "backend": "mtplx", "mode": "no-think",
                  "id": "a", "task": "mmlu", "correct": True, "latency_s": 1.0}]
