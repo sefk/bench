@@ -81,6 +81,12 @@ class DeriveDimensionsTests(SimpleTestCase):
         self.assertEqual(dims["runtime"], "mlx")
         self.assertEqual(dims["quant"], "4bit-dyn")
 
+    def test_ds4_packs(self):
+        self.assertEqual(derive_dimensions("qwen/qwen3.8-flash-next@iq2_xxs")["precision"], "2-bit")
+        self.assertEqual(derive_dimensions("qwen/qwen3.8-flash-next@iq2_xxs")["runtime"], "gguf")
+        self.assertEqual(derive_dimensions("qwen/qwen3.8-flash-next@q4_k")["precision"], "4-bit")
+        self.assertEqual(derive_dimensions("qwen/qwen3.8-flash-next@q4_k")["runtime"], "gguf")
+
     def test_no_quant(self):
         d = derive_dimensions("foo/bar")
         self.assertEqual(d["family"], "foo")

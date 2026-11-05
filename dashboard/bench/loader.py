@@ -46,6 +46,10 @@ _PRECISION = {
     # MTPLX's "Optimized Speed" packs: 4-bit experts with the attention
     # projections at 8-bit. Nearly all the weight is in the experts.
     "4bit-dyn": "4-bit",
+    # DwarfStar (ds4) GGUF packs of Qwen3.8 Flash-Next: imatrix IQ2_XXS/Q2_K
+    # experts, or Q4_K/MXFP4 experts, with dense tensors kept higher.
+    "iq2_xxs": "2-bit",
+    "q4_k": "4-bit",
 }
 
 # What a model id cannot say -- gpt-oss-20b is MoE with no `-a3b`-style suffix,
@@ -151,7 +155,7 @@ def derive_dimensions(model: str) -> dict[str, str]:
 
     if quant == "unknown":
         runtime = "unknown"
-    elif re.match(r"q\d", quant):
+    elif re.match(r"i?q\d", quant):
         runtime = "gguf"
     else:
         runtime = "mlx"
