@@ -1,10 +1,12 @@
-# Qwen, gpt-oss and Apple on-device inference on an M1 Max: quality, latency, cost
+# Qwen, gpt-oss and Apple on-device inference on an M1 Max and an M5 Max: quality, latency, cost
 
 Mac Studio, Apple M1 Max — 32 GPU cores, 64 GB unified memory (~400 GB/s
 theoretical). LM Studio + MLX unless noted; Apple's on-device Foundation Model
 via `fm serve` on macOS 27; OpenAI's `gpt-oss-20b` from 2026-10-14. Quality is measured on this machine against a fixed
 750-item set, not taken from published scores. See the [Log](#log) for what was
-measured when and where the raw data lives.
+measured when and where the raw data lives. From 2026-11-04 the same matrix
+runs on a MacBook Pro M5 Max (40 GPU cores, 128 GB, ~614 GB/s); see
+[The M5 Max](#the-m5-max-128-gb).
 
 ## Findings
 
@@ -326,6 +328,89 @@ cold load, once per model per session.**
 - **Keep models on whatever disk is convenient.** Costs ~6 s per cold load and
   nothing thereafter.
 
+## The M5 Max, 128 GB
+
+Everything above was measured on the M1 Max. On 2026-11-04 the same matrix ran
+on a MacBook Pro M5 Max (40-core GPU, 128 GB, ~614 GB/s), plus Qwen3.8
+Flash-Next (125B-A6B MoE), which the M1 could not hold, under two engines.
+Every result row now records `machine`, `engine` and `temp`; the dashboard
+splits on all three.
+
+### Decode tracks bandwidth; prefill is the win
+
+4,000-token prompt, 16,000 in parentheses, M5 against M1:
+
+| Variant | Decode | × | Prefill | × |
+|---|---|---|---|---|
+| `gpt-oss-20b@mxfp4` | 151 (135) | 1.9 (2.5) | 3,669 (5,080) | 8.5 (10.7) |
+| `35b-a3b@4bit` | 137 (129) | 2.0 (2.2) | 5,045 (5,047) | 8.8 (8.7) |
+| `3.6-27b@4bit` | 32.6 (31.1) | 1.8 | 969 (975) | 10.9 (11.2) |
+| `3.8-27b@4bit` | 32.4 (30.9) | 1.8 | 980 (981) | 11.1 (11.2) |
+| `3.6-27b@8bit` | 18.2 (17.6) | 1.8 | 871 (915) | 9.8 (10.5) |
+| `3.8-27b@8bit` | 18.1 (17.7) | 1.8 | 899 (921) | 10.1 (10.6) |
+| Apple on-device | 33.2 | 1.2 | 1,166 | 2.5 |
+
+Decode rose 1.8–2.2× on every GPU build, which is the bandwidth ratio (614
+against ~400 GB/s) and a little more at long context. Prefill rose 9–11×, the
+M5's per-core Neural Accelerators doing exactly what the reviews said. For an
+agent that is the number that matters: a 16k prompt on 27B dense went from
+148 s to 13 s. Apple's model, which does not run on the GPU, gained 1.2× and
+2.5×, confirming where the speedup lives. Dense 27B at 8-bit is 18 tok/s and
+still not worth it; 4-bit at 32 is the practical dense build, as on the M1.
+
+### Flash-Next: an MTPLX model, not an LM Studio one
+
+Qwen3.8 Flash-Next is the best-scoring open coding model that fits 128 GB
+(62.5% SWE-bench Pro at full precision). Same machine, flat 4-bit weights,
+temperature 0:
+
+| Prompt | LM Studio decode | MTPLX decode | × | LM Studio prefill | MTPLX prefill |
+|---|---|---|---|---|---|
+| short | 26 | 86 | 3.3 | — | — |
+| 1,000 | 25 | 83 | 3.3 | 629 | 1,408 |
+| 4,000 | 23 | 70 | 3.0 | 818 | 1,911 |
+| 16,000 | failed | 64 | — | — | 1,980 |
+
+[MTPLX][mtplx] drafts with the model's own multi-token-prediction head and is
+3× faster on decode and 2.2× on prefill. That is more than its own "2–3×"
+claim, which says part of the gap is LM Studio's side: its Flash-Next support
+is tagged `qwen4_exp`, it loads the whole 111 GB pack including the 32 GB
+n-gram table (104 GiB resident, 1 GB free), decodes slower than 27B dense,
+and its 16k row returned no tokens at all. On this machine today, Flash-Next
+runs under MTPLX or not usefully at all.
+
+Within MTPLX, the published numbers are short-prompt numbers. Decode is
+100–135 tok/s with no context and 65–80 with 1k–16k of it, on both builds, at
+both temperatures (0 and 0.6, within noise of each other — consistent with the
+engine's "exact at any temperature" design). Bare Speed (flat 4-bit, 78 GiB
+peak, built for 96 GB Macs) and Optimized Speed (4-bit experts, 8-bit
+attention, 87 GiB) are a wash on speed; Optimized is the higher-quality build
+and the one to run. Plan on ~70 tok/s with a loaded context, which is still
+2–2.5× the 27B dense's 32 on a model that scores higher.
+
+### Memory is the ceiling
+
+Flash-Next on either engine leaves 1–6 GB free of 128. That is the pack plus
+the n-gram table in page cache; it is why the LM Studio 16k row died, and it
+rules out keeping 27B resident alongside. A 96 GB Mac would not run this model
+at all. The Max over the Ultra was argued on capacity, and this is the model
+that proves it.
+
+### Takeaways
+
+- **Flash-Next on MTPLX Optimized Speed is the daily driver.** ~70 tok/s with
+  context, ~1,900 tok/s prefill at 16k, the best coding score that fits.
+- **Everything measured on the M1 is simply ~2× decode and ~10× prefill here**,
+  with the same quality ordering, so the M1 takeaways above still hold for
+  the LM Studio builds.
+- **Not measured yet:** whether MTPLX's output matches a plain run of the same
+  weights (its "exact" claim; `quality-bench` can check it on 27B, where LM
+  Studio is healthy), what raising `iogpu.wired_limit_mb` buys at long context,
+  and whether a 2-bit Flash-Next (DwarfStar's 42 GiB build) keeps enough
+  quality to be worth the 60 GB of headroom.
+
+[mtplx]: https://github.com/youssofal/MTPLX
+
 ## Methodology notes
 
 - **Quality is measured here, not cited.** 250 GSM8K items (numeric answer) and
@@ -555,3 +640,28 @@ Learned: it ties the 4-bit Qwen MoE on MMLU (83.8%) and on LiveCodeBench at
 16k (18–20 paired), trails it on GSM8K (p=0.02), and decodes 16% faster. Its
 distinguishing trait is concision: 709-token median code answers, none
 truncated at 4k, and a full code pass in 0.82 GPU-hours against 5.4.
+
+### 2026-11-04 — The M5 Max, Flash-Next, and a second engine
+
+First day on the MacBook Pro M5 Max (128 GB). The full matrix (seven LM Studio
+variants and Apple's model) at the M1's sizes and runs, ~45 minutes; then
+Qwen3.8 Flash-Next under LM Studio (`mlx-community` 4-bit, 111 GB with its
+n-gram table) and under MTPLX 2.12.2 (Bare Speed and Optimized Speed, each at
+temperature 0 and 0.6). Raw data in `results/2026-11-04/`.
+
+Tooling: every row now records `machine` (chip and RAM from `sysctl`),
+`engine`, `temperature` and `gpu_wired_limit_mb`; older rows read as the M1
+Max under LM Studio at temperature 0. `lmstudio-bench` and `quality-bench`
+accept `<engine>:<model>` for any OpenAI-compatible server (`MTPLX_URL`,
+`SPLASH_URL`, ...) and `--label` to file the build under its LM Studio id, so
+the two engines line up as one variant. Two bugs surfaced: a variant not on
+disk made the warm-up retry for its whole 12-minute budget (now five
+retries), and the prompt nonce was identical across invocations, so a server
+that stays up between runs (MTPLX) answered the second out of its KV cache —
+a 12,918-token prompt "prefilled" in 0.14 s. Nonces are salted per invocation
+now and the affected rows were re-run. LM Studio's loading guardrail refused
+the 111 GB Flash-Next pack and is off in its settings.
+
+Learned: decode 1.8–2.2× the M1, prefill 9–11×; Flash-Next under MTPLX is 3×
+LM Studio on the same weights and ~70 tok/s with a loaded context; the machine
+has 1–6 GB free with it resident.
