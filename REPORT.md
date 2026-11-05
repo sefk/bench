@@ -480,9 +480,11 @@ below what 750 items resolve.
   where LM Studio is healthy), what raising `iogpu.wired_limit_mb` buys
   at long context, and DeepSeek V4 Flash Q2 on ds4, the model DwarfStar
   itself recommends for a 128 GB Mac (81 GiB, ~34 tok/s at 32K by its
-  numbers), on the same quality set.
+  numbers), on the same quality set. Each of these, with cost and
+  commands, is in [next-experiments.md][next].
 
 [mtplx]: https://github.com/youssofal/MTPLX
+[next]: next-experiments.md
 
 ## Methodology notes
 

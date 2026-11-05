@@ -408,6 +408,8 @@ model mid-benchmark and cause exactly this. Check with `lms ps` and
 ## Results
 
 See [REPORT.md][report]. Raw per-run JSON is under `results/<date>/`.
+Candidate runs not yet made, with their cost and command shape, are in
+[next-experiments.md][next].
 
 ## Dashboard
 
@@ -520,3 +522,4 @@ mtime changes, so new runs show up on refresh without restarting the server.
 [lcb]: https://livecodebench.github.io
 [lms]: https://lmstudio.ai
 [report]: REPORT.md
+[next]: next-experiments.md
