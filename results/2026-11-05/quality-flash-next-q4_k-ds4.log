@@ -1,0 +1,38 @@
+
+=== ds4:qwen3.8-flash-next-no-think [no-think] 750 items (0 already done) ===
+  25/750  100.0% correct  4.84s/item  ~59m left
+  50/750  100.0% correct  4.93s/item  ~58m left
+  75/750  100.0% correct  5.25s/item  ~59m left
+  100/750  99.0% correct  5.34s/item  ~58m left
+  125/750  98.4% correct  5.60s/item  ~58m left
+  150/750  97.3% correct  5.68s/item  ~57m left
+  175/750  97.1% correct  5.52s/item  ~53m left
+  200/750  97.5% correct  5.41s/item  ~50m left
+  225/750  97.3% correct  5.37s/item  ~47m left
+  250/750  97.6% correct  5.30s/item  ~44m left
+  275/750  96.7% correct  4.85s/item  ~38m left
+  300/750  95.7% correct  4.46s/item  ~33m left
+  325/750  95.7% correct  4.14s/item  ~29m left
+  350/750  94.6% correct  3.87s/item  ~26m left
+  375/750  94.4% correct  3.63s/item  ~23m left
+  400/750  94.0% correct  3.42s/item  ~20m left
+  425/750  93.6% correct  3.23s/item  ~18m left
+  450/750  93.1% correct  3.07s/item  ~15m left
+  475/750  92.4% correct  2.92s/item  ~13m left
+  500/750  92.2% correct  2.79s/item  ~12m left
+  525/750  92.0% correct  2.67s/item  ~10m left
+  550/750  90.9% correct  2.56s/item  ~9m left
+  575/750  90.3% correct  2.46s/item  ~7m left
+  600/750  89.7% correct  2.37s/item  ~6m left
+  625/750  89.4% correct  2.29s/item  ~5m left
+  650/750  89.5% correct  2.21s/item  ~4m left
+  675/750  89.6% correct  2.14s/item  ~3m left
+  700/750  89.4% correct  2.07s/item  ~2m left
+  725/750  89.1% correct  2.01s/item  ~1m left
+  750/750  89.1% correct  1.95s/item  ~0m left
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.8-flash-next@iq2_xxs    no-think    98.0%   82.4%       -    87.6% [85.0-89.8]    0      0
+qwen/qwen3.8-flash-next@q4_k       no-think    97.6%   84.8%       -    89.1% [86.6-91.1]    0      3
+qwen/qwen3.8-flash-next@4bit-dyn   no-think    96.8%   81.2%       -    86.4% [83.8-88.7]    0     29

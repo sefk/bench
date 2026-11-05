@@ -1,0 +1,36 @@
+
+=== mtplx:mtplx-flash-next-optimized-speed [no-think] 750 items (0 already done) ===
+  25/750  100.0% correct  2.63s/item  ~32m left
+  50/750  98.0% correct  2.82s/item  ~33m left
+  75/750  97.3% correct  3.07s/item  ~35m left
+  100/750  97.0% correct  3.12s/item  ~34m left
+  125/750  96.8% correct  3.14s/item  ~33m left
+  150/750  96.0% correct  3.18s/item  ~32m left
+  175/750  96.0% correct  3.14s/item  ~30m left
+  200/750  96.5% correct  3.08s/item  ~28m left
+  225/750  96.4% correct  3.05s/item  ~27m left
+  250/750  96.8% correct  3.00s/item  ~25m left
+  275/750  95.6% correct  2.76s/item  ~22m left
+  300/750  94.7% correct  2.56s/item  ~19m left
+  325/750  93.5% correct  2.39s/item  ~17m left
+  350/750  92.3% correct  2.25s/item  ~15m left
+  375/750  91.7% correct  2.13s/item  ~13m left
+  400/750  90.8% correct  2.02s/item  ~12m left
+  425/750  90.6% correct  1.92s/item  ~10m left
+  450/750  89.8% correct  1.83s/item  ~9m left
+  475/750  89.3% correct  1.76s/item  ~8m left
+  500/750  89.0% correct  1.69s/item  ~7m left
+  525/750  89.0% correct  1.62s/item  ~6m left
+  550/750  87.6% correct  1.57s/item  ~5m left
+  575/750  87.1% correct  1.52s/item  ~4m left
+  600/750  86.5% correct  1.47s/item  ~4m left
+  625/750  86.6% correct  1.43s/item  ~3m left
+  650/750  86.6% correct  1.39s/item  ~2m left
+  675/750  86.5% correct  1.35s/item  ~2m left
+  700/750  86.4% correct  1.31s/item  ~1m left
+  725/750  86.2% correct  1.28s/item  ~1m left
+  750/750  86.4% correct  1.25s/item  ~0m left
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.8-flash-next@4bit-dyn   no-think    96.8%   81.2%       -    86.4% [83.8-88.7]    0     29

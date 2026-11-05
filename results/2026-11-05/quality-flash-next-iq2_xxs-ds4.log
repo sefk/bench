@@ -1,0 +1,37 @@
+
+=== ds4:qwen3.8-flash-next-no-think [no-think] 750 items (0 already done) ===
+  25/750  100.0% correct  4.23s/item  ~51m left
+  50/750  100.0% correct  4.41s/item  ~51m left
+  75/750  100.0% correct  4.50s/item  ~51m left
+  100/750  99.0% correct  4.74s/item  ~51m left
+  125/750  99.2% correct  4.97s/item  ~52m left
+  150/750  98.0% correct  4.93s/item  ~49m left
+  175/750  97.7% correct  4.86s/item  ~47m left
+  200/750  98.0% correct  4.84s/item  ~44m left
+  225/750  97.8% correct  4.82s/item  ~42m left
+  250/750  98.0% correct  4.78s/item  ~40m left
+  275/750  97.1% correct  4.38s/item  ~35m left
+  300/750  96.3% correct  4.04s/item  ~30m left
+  325/750  96.0% correct  3.75s/item  ~27m left
+  350/750  94.3% correct  3.51s/item  ~23m left
+  375/750  94.1% correct  3.30s/item  ~21m left
+  400/750  93.0% correct  3.11s/item  ~18m left
+  425/750  92.7% correct  2.95s/item  ~16m left
+  450/750  92.2% correct  2.80s/item  ~14m left
+  475/750  91.8% correct  2.67s/item  ~12m left
+  500/750  91.8% correct  2.55s/item  ~11m left
+  525/750  91.4% correct  2.45s/item  ~9m left
+  550/750  90.2% correct  2.35s/item  ~8m left
+  575/750  89.6% correct  2.26s/item  ~7m left
+  600/750  88.8% correct  2.18s/item  ~5m left
+  625/750  88.5% correct  2.11s/item  ~4m left
+  650/750  88.5% correct  2.04s/item  ~3m left
+  675/750  88.4% correct  1.98s/item  ~2m left
+  700/750  88.1% correct  1.92s/item  ~2m left
+  725/750  87.6% correct  1.86s/item  ~1m left
+  750/750  87.6% correct  1.81s/item  ~0m left
+
+model                              mode        gsm8k    mmlu    code            composite  ref  trunc
+-----------------------------------------------------------------------------------------------------
+qwen/qwen3.8-flash-next@iq2_xxs    no-think    98.0%   82.4%       -    87.6% [85.0-89.8]    0      0
+qwen/qwen3.8-flash-next@4bit-dyn   no-think    96.8%   81.2%       -    86.4% [83.8-88.7]    0     29

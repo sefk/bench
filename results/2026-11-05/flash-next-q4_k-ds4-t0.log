@@ -1,0 +1,4 @@
+NOT measuring power -- throughput only. Any energy figure derived from these results is an assumption, not a measurement. Pass --power-log FILE to measure it.
+
+ds4:qwen3.8-flash-next
+  warmed up in 5 runs: 57.4 -> 57.4 tok/s
