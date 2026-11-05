@@ -5,7 +5,7 @@
 	<key>Label</key>
 	<string>com.sefk.bench-dashboard</string>
 
-	<!-- Rendered and loaded by bin/deploy as a system LaunchDaemon (starts at
+	<!-- Rendered and loaded by bin/deploy-dashboard as a system LaunchDaemon (starts at
 	     boot); it runs as the user so it can read the results. Do not install
 	     by hand. -->
 	<key>UserName</key>

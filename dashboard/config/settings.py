@@ -4,7 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Nothing here uses sessions, CSRF or a database, so the key signs nothing; it is
-# still overridable. bin/deploy sets DASHBOARD_DEBUG=0 for the gunicorn daemon.
+# still overridable. bin/deploy-dashboard sets DASHBOARD_DEBUG=0 for the gunicorn daemon.
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-not-secret")
 
 DEBUG = os.environ.get("DASHBOARD_DEBUG", "1") != "0"

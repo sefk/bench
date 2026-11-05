@@ -3,8 +3,8 @@
 # this user: starts at boot with nobody logged in, restarts if it dies, serves with
 # gunicorn on every interface (0.0.0.0). Needs sudo for the install.
 #
-#   bin/deploy            sync deps, render the plist, (re)load, wait for it to answer
-#   bin/deploy --remove   unload and delete the daemon (and any old per-user agent)
+#   bin/deploy-dashboard            sync deps, render the plist, (re)load, wait for it to answer
+#   bin/deploy-dashboard --remove   unload and delete the daemon (and any old per-user agent)
 #
 # DASHBOARD_PORT overrides the port (default 8101, same as the Procfile).
 set -euo pipefail

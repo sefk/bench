@@ -492,16 +492,16 @@ cd dashboard && DASHBOARD_PORT=8123 honcho start        # another port
 cd dashboard && uv run manage.py runserver 127.0.0.1:8101   # this machine only
 ```
 
-To keep it running, `bin/deploy` installs a system LaunchDaemon (runs as you, needs sudo)
+To keep it running, `bin/deploy-dashboard` installs a system LaunchDaemon (runs as you, needs sudo)
 (`com.sefk.bench-dashboard`) that starts at boot, restarts on exit, and
 listens on `0.0.0.0:8101` (`DASHBOARD_PORT` overrides). Rerun it to pick up
-code changes; `bin/deploy --remove` uninstalls. Logs go to
+code changes; `bin/deploy-dashboard --remove` uninstalls. Logs go to
 `~/Library/Logs/bench-dashboard.log`. The daemon runs gunicorn (2 workers, static files via WhiteNoise, `DASHBOARD_DEBUG=0`);
 it has no auth, so anything on the network can reach it — fine on a home LAN.
 `honcho start` still uses `runserver` with `DEBUG` on for development.
 
 ```sh
-bin/deploy
+bin/deploy-dashboard
 ```
 
 Then open <http://studio.local:8101/> from any machine on the LAN, or
