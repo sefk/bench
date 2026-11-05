@@ -451,6 +451,24 @@ MACHINE = machine_id()
 LEGACY_MACHINE = "M1 Max 64 GB"
 
 
+def gpu_wired_limit_mb():
+    """macOS's cap on GPU-wired memory (`iogpu.wired_limit_mb`); 0 means the
+    default, about 75% of RAM. Raised with sudo sysctl for the largest models,
+    and recorded so a run under the default and one under a raised cap are
+    never compared as if nothing differed."""
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", "iogpu.wired_limit_mb"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip()
+        return int(out) if out else None
+    except (OSError, ValueError):
+        return None
+
+
+GPU_WIRED_LIMIT_MB = gpu_wired_limit_mb()
+
+
 def free_memory_gb():
     """Free physical memory, in GB, from vm_stat.
 
@@ -777,6 +795,7 @@ def bench_model(target, sizes, runs, max_tokens, verbose, unload=True, power=Non
             "engine": backend,
             "machine": MACHINE,
             "temperature": TEMPERATURE,
+            "gpu_wired_limit_mb": GPU_WIRED_LIMIT_MB,
             "size": label,
             # A short prompt's ttft is mostly fixed overhead, so dividing by it
             # says nothing about prefill speed. Only report the rate for sizes
