@@ -297,13 +297,22 @@ class PowerLog:
 # Benchmark
 
 
+# Salts every nonce, so no two invocations ever send the same prompt. LM Studio
+# forgets its KV cache when a model is unloaded between invocations, but a
+# server that stays up (MTPLX) does not: a second run of "1000tok-0" was served
+# from the first run's cache, with a 12,918-token prompt prefilled in 0.14 s.
+RUN_SALT = f"{int(time.time())}-{random.randrange(1 << 30):x}"
+
+
 def build_prompt(nonce, prompt_tokens):
-    """A prompt of roughly prompt_tokens whose every token is unique to `nonce`.
+    """A prompt of roughly prompt_tokens whose every token is unique to `nonce`
+    and to this invocation.
 
     Both the leading marker and the whole body are derived from the nonce, so
     no two runs share a reusable prefix of any length and LM Studio must do the
     full prefill every time.
     """
+    nonce = f"{RUN_SALT}/{nonce}"
     head = f"[run {nonce}] "
     if prompt_tokens <= 0:
         # Long enough to fill any sane max_tokens, for the same reason as below.

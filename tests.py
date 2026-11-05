@@ -269,6 +269,17 @@ class CodeToleranceParsingTests(unittest.TestCase):
         self.assertIsNone(self.mk.stated_tolerance("Print the number of ways."))
 
 
+class PromptNonceTests(unittest.TestCase):
+    def test_prompts_are_unique_per_invocation(self):
+        # Same nonce within one process: same prompt (a run is repeatable).
+        # The salt in the head is what keeps a server that stays up between
+        # invocations from answering the next one out of its cache.
+        a, b = bench.build_prompt("1000tok-0", 1000), bench.build_prompt("1000tok-0", 1000)
+        self.assertEqual(a, b)
+        self.assertIn(bench.RUN_SALT, a)
+        self.assertNotEqual(a, bench.build_prompt("1000tok-1", 1000))
+
+
 class WarmUpErrorTests(unittest.TestCase):
     def test_a_persistent_error_fails_fast(self):
         # A variant that is not on disk errors on every request; the warm-up
