@@ -269,6 +269,27 @@ class CodeToleranceParsingTests(unittest.TestCase):
         self.assertIsNone(self.mk.stated_tolerance("Print the number of ways."))
 
 
+class WarmUpErrorTests(unittest.TestCase):
+    def test_a_persistent_error_fails_fast(self):
+        # A variant that is not on disk errors on every request; the warm-up
+        # must give up after a few, not retry for its whole time budget.
+        import urllib.error
+        calls = {"n": 0}
+
+        def failing_one_run(model, prompt, max_tokens, backend):
+            calls["n"] += 1
+            raise urllib.error.HTTPError("http://x", 404, "not found", {}, None)
+
+        original, original_sleep = bench.one_run, bench.time.sleep
+        bench.one_run, bench.time.sleep = failing_one_run, lambda s: None
+        try:
+            with self.assertRaises(urllib.error.HTTPError):
+                bench.warm_up_model("m", 256, "lmstudio")
+        finally:
+            bench.one_run, bench.time.sleep = original, original_sleep
+        self.assertEqual(calls["n"], bench.WARMUP_ERROR_RETRIES)
+
+
 class EngineTests(unittest.TestCase):
     def test_split_target(self):
         self.assertEqual(bench.split_target("qwen/qwen3.6-27b@4bit"), ("lmstudio", "qwen/qwen3.6-27b@4bit"))
