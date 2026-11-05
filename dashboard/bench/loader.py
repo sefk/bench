@@ -43,6 +43,9 @@ _PRECISION = {
     # scale per block); attention and embeddings stay at bf16. The experts are
     # nearly all the weight, so 4-bit is the honest nominal width.
     "mxfp4": "4-bit",
+    # MTPLX's "Optimized Speed" packs: 4-bit experts with the attention
+    # projections at 8-bit. Nearly all the weight is in the experts.
+    "4bit-dyn": "4-bit",
 }
 
 # What a model id cannot say -- gpt-oss-20b is MoE with no `-a3b`-style suffix,
@@ -330,6 +333,9 @@ def _read_rows(results_dir: Path) -> list[dict]:
             row["source_file"] = path.name
             row.setdefault("machine", LEGACY_MACHINE)
             row["engine"] = legacy_engine(row)
+            # Sampling temperature, as a string so it filters like the other
+            # dimensions. Rows that predate the field were sampled at 0.
+            row["temp"] = f"{row.get('temperature') or 0:g}"
             model = row.get("model", "")
             row.update(derive_dimensions(model))
             rows.append(row)
@@ -355,7 +361,7 @@ MEASURES = [
 ]
 
 DIMENSIONS = [
-    "machine", "engine", "version", "arch", "quant", "precision", "runtime", "date", "variant",
+    "machine", "engine", "temp", "version", "arch", "quant", "precision", "runtime", "date", "variant",
 ]
 
 SIZE_ORDER = ["short", "1000tok", "4000tok", "16000tok"]

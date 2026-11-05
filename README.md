@@ -120,7 +120,10 @@ the socket. Compare engines on those clocks. `--label` records the build under
 the id its LM Studio run uses, so the two engines line up as one variant in
 the dashboard (`engine` is a filter, a column and a series-by choice there);
 `--temperature` is recorded on every row, since a speculative decoder's rate
-depends on it. Rows without an `engine` field predate it and are read as
+depends on it, and the dashboard offers it as the `temp` dimension (rows
+that predate it were sampled at 0). MTPLX's "Optimized Speed" packs keep
+the attention projections at 8-bit; they are labelled `@4bit-dyn` so they
+do not pass as the flat 4-bit build. Rows without an `engine` field predate it and are read as
 `lmstudio`, or `fm` for Apple's model. LM Studio is drained before another
 engine is benchmarked, but that engine's own model is yours to load first and
 to stop afterwards -- and on one machine, stop it before benchmarking LM

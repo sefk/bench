@@ -75,6 +75,12 @@ class DeriveDimensionsTests(SimpleTestCase):
         self.assertEqual(d["runtime"], "mlx")
         self.assertEqual(d["variant"], "gpt-oss-20b@mxfp4")
 
+    def test_mtplx_dynamic_4bit(self):
+        dims = derive_dimensions("qwen/qwen3.8-flash-next@4bit-dyn")
+        self.assertEqual(dims["precision"], "4-bit")
+        self.assertEqual(dims["runtime"], "mlx")
+        self.assertEqual(dims["quant"], "4bit-dyn")
+
     def test_no_quant(self):
         d = derive_dimensions("foo/bar")
         self.assertEqual(d["family"], "foo")
@@ -167,7 +173,18 @@ class LoaderTests(SimpleTestCase):
         self.assertIn("3.6", meta["version"])
         self.assertEqual(meta["machine"], [LEGACY_MACHINE])
         self.assertEqual(meta["engine"], ["lmstudio"])
+        self.assertEqual(meta["temp"], ["0"])
         self.assertTrue(any(m["key"] == "gen_tps" for m in meta["measures"]))
+
+    def test_temperature_is_a_string_dimension(self):
+        date_dir = self.results_dir / "2026-11-04"
+        date_dir.mkdir()
+        (date_dir / "warm.json").write_text(json.dumps([
+            {"model": "qwen/qwen3.6-27b@4bit", "size": "1000tok", "sized": True,
+             "gen_tps": 40.0, "temperature": 0.6},
+        ]))
+        temps = sorted({row["temp"] for row in load_rows(self.results_dir, force=True)})
+        self.assertEqual(temps, ["0", "0.6"])
 
     def test_legacy_engine(self):
         self.assertEqual(legacy_engine({"model": "qwen/qwen3.6-27b@4bit"}), "lmstudio")
