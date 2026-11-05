@@ -443,12 +443,27 @@ the best measured quality (it matches Qwen3.6-27B's 89.6% on this set at
 twice the decode speed); MTPLX when its client integrations matter more than
 the memory. LM Studio is not in the running for this model.
 
+DwarfStar's own [hardware guide][ds4-hw] ranks this machine differently.
+For the 128 GB tier it says: "DeepSeek V4 Flash Q2 is the baseline. At
+128 GB, GLM 5.3 Flash Q2 (with a modest context) and Qwen3.8 Q4 also fit;
+DeepSeek V4.1 Q2 streams its experts from the SSD." Qwen3.8 Q2 is its pick
+for the 64 GB tier, not this one. Its DeepSeek number for an M5 Max with
+128 GB is 34.4 tok/s decode and 557 tok/s prefill at 32K context, with
+81 GiB resident. So ds4 would spend the memory on a bigger model at half the
+speed; this writeup spends it on headroom. The difference is that DeepSeek
+V4 Flash's 2-bit quality is unmeasured here (Unsloth's KL figures for that
+pack are in [m5-ultra-models.md][m5-models]), while Qwen3.8 Q2's is now
+measured and clean. Running the same 750 items and LiveCodeBench against ds4's
+DeepSeek V4 Flash Q2 is the run that would settle whose ranking is right.
+
 Caveats specific to this comparison: the no-think route differs by engine
 (ds4's `-no-think` model alias, MTPLX's `--reasoning off` plus an empty
 think prefill), ds4 is beta, and the 1–2 point composite differences are
 below what 750 items resolve.
 
 [ds4]: https://github.com/antirez/ds4
+[ds4-hw]: https://dwarfstar.sh/hardware
+[m5-models]: m5-ultra-models.md
 
 ### Takeaways
 
@@ -462,8 +477,10 @@ below what 750 items resolve.
 - **Not measured yet:** the 16k re-run of the truncated code answers (the
   fair ds4-vs-MTPLX code score), whether MTPLX's output matches a plain run
   of the same weights (its "exact" claim; `quality-bench` can check it on 27B,
-  where LM Studio is healthy), and what raising `iogpu.wired_limit_mb` buys
-  at long context.
+  where LM Studio is healthy), what raising `iogpu.wired_limit_mb` buys
+  at long context, and DeepSeek V4 Flash Q2 on ds4, the model DwarfStar
+  itself recommends for a 128 GB Mac (81 GiB, ~34 tok/s at 32K by its
+  numbers), on the same quality set.
 
 [mtplx]: https://github.com/youssofal/MTPLX
 
@@ -742,3 +759,9 @@ for Q4 and 86.4% for MTPLX's 4-bit, all inside each other's intervals); on
 code the 8.6-point gap over MTPLX is answer length and truncation, not
 weights (72 against 71 on the problems both finished). ds4 decodes flat
 across context, Q2 only 4% faster than Q4, and `--mtp` adds 1.25–1.3×.
+
+Noted from DwarfStar's hardware guide: it recommends DeepSeek V4 Flash Q2
+(81 GiB, 34.4 tok/s at 32K on an M5 Max 128 GB) as the baseline for this
+tier, with Qwen3.8 Q4 and GLM 5.3 Flash Q2 as the other resident options and
+V4.1 Q2 streaming from SSD; Qwen3.8 Q2 is its 64 GB pick. Its DeepSeek quality
+at 2-bit is unmeasured here.
