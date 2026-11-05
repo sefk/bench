@@ -1,0 +1,4 @@
+NOT measuring power -- throughput only. Any energy figure derived from these results is an assumption, not a measurement. Pass --power-log FILE to measure it.
+
+mtplx:mtplx-flash-next-bare-speed
+  warmed up in 10 runs: 76.7 -> 117.3 tok/s
