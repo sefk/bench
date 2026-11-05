@@ -1,0 +1,19 @@
+NOT measuring power -- throughput only. Any energy figure derived from these results is an assumption, not a measurement. Pass --power-log FILE to measure it.
+
+qwen3.8-flash-next
+  warmup 1: 26.1 tok/s (511 tokens)
+  warmup 2: 25.5 tok/s (1022 tokens)
+  warmup 3: 25.1 tok/s (1533 tokens)
+  warmup 4: 25.9 tok/s (2044 tokens)
+  warmup 5: 25.7 tok/s (2555 tokens)
+  warmed up in 5 runs: 26.1 -> 26.1 tok/s
+  short run 1: 25.5 tok/s, ttft 0.56s, total 10.5s
+  short run 2: 26.1 tok/s, ttft 0.48s, total 10.2s
+  short run 3: 26.2 tok/s, ttft 0.52s, total 10.2s
+  1000tok run 1: 24.7 tok/s, ttft 1.35s, total 11.6s
+  1000tok run 2: 25.7 tok/s, ttft 1.51s, total 11.4s
+  1000tok run 3: 24.8 tok/s, ttft 1.48s, total 11.7s
+  4000tok run 1: 23.0 tok/s, ttft 4.14s, total 15.2s
+  4000tok run 2: 23.3 tok/s, ttft 4.09s, total 15.0s
+  4000tok run 3: 22.0 tok/s, ttft 4.00s, total 15.6s
+  16000tok: SKIPPED -- no completion tokens reported or counted
