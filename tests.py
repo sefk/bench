@@ -746,5 +746,127 @@ class LmsmonTests(unittest.TestCase):
         self.assertEqual(lmsmon.fmt_duration(3700), "1h01m")
 
 
+ds4mon = load_script("ds4mon")
+
+
+class Ds4monTests(unittest.TestCase):
+    """Lines are verbatim from a ds4 b3f5018 server log on the M5 Max."""
+
+    NOW = __import__("datetime").datetime(2026, 11, 5, 12, 0, 0)
+    LOG = """\
+ds4: memory: KV 4.17 GiB (raw 3.25 + compressed 0.91) + buffers 9.68 GiB + resident model 41.72 GiB = 55.57 GiB planned
+ds4: memory detail: ctx=131072 prefill_cap=8192 raw_kv_rows=131072 compressed_kv_rows=32769 backend=metal
+1105 10:31:51 ds4-server: listening on http://0.0.0.0:8765
+1105 10:33:37 ds4-server: chat ctx=0..60:60 prompt start
+1105 10:33:37 ds4-server: chat ctx=0..60:60 prefill chunk 60/60 (100.0%) chunk=0.00 t/s avg=190.95 t/s 0.314s
+1105 10:33:37 ds4-server: chat ctx=0..60:60 prompt done 0.314s
+1105 10:33:38 ds4-server: chat ctx=60..110:50 gen=50 THINKING decoding chunk=61.08 t/s avg=61.08 t/s 0.819s
+1105 10:33:43 ds4-server: chat ctx=410..460:50 gen=400 THINKING decoding chunk=68.97 t/s avg=65.58 t/s 6.099s
+ds4-server: thinking not closed, ignoring incomplete Qwen tool calls in reasoning
+1105 10:33:43 ds4-server: chat ctx=0..60:60 gen=400 THINKING finish=length 6.414s
+1105 10:33:43 ds4-server: live kv cache miss live=460 prompt=58 common=45 vision=match reason=token-mismatch
+1105 10:33:44 ds4-server: chat ctx=412..900:488 prompt start
+1105 10:33:45 ds4-server: chat ctx=900..950:50 gen=50 decoding chunk=59.05 t/s avg=60.14 t/s 1.530s
+"""
+
+    def feed(self, text):
+        mon = ds4mon.Monitor()
+        for line in text.splitlines():
+            evt = ds4mon.parse_line(line, now=self.NOW)
+            if evt:
+                mon.feed(evt)
+        return mon
+
+    def test_parses_each_line_kind(self):
+        p = lambda s: ds4mon.parse_line(s, now=self.NOW)  # noqa: E731
+        lines = self.LOG.splitlines()
+        self.assertEqual(p(lines[0])["planned_gib"], 55.57)
+        self.assertEqual(p(lines[1])["ctx"], 131072)
+        self.assertEqual(p(lines[2])["url"], "http://0.0.0.0:8765")
+        start = p(lines[3])
+        self.assertEqual((start["event"], start["cached"], start["prompt"], start["new"]),
+                         ("start", 0, 60, 60))
+        self.assertEqual(p(lines[4])["tps"], 190.95)
+        self.assertEqual(p(lines[5])["secs"], 0.314)
+        dec = p(lines[7])
+        self.assertEqual((dec["gen"], dec["chunk_tps"], dec["tps"], dec["flags"]),
+                         (400, 68.97, 65.58, ["THINKING"]))
+        self.assertIsNone(p(lines[8]), "untimestamped chatter is ignored")
+        fin = p(lines[9])
+        self.assertEqual((fin["finish"], fin["gen"], fin["secs"], fin["error"]),
+                         ("length", 400, 6.414, None))
+        self.assertEqual(p(lines[10])["reason"], "token-mismatch")
+
+    def test_finish_with_error(self):
+        evt = ds4mon.parse_line(
+            '1105 10:00:00 ds4-server: chat ctx=0..9:9 gen=3 TOOLS finish=error '
+            'error="client disconnected" 0.500s', now=self.NOW)
+        self.assertEqual((evt["finish"], evt["error"], evt["flags"]),
+                         ("error", "client disconnected", ["TOOLS"]))
+
+    def test_monitor_tracks_requests_and_phase(self):
+        mon = self.feed(self.LOG)
+        self.assertEqual(mon.ctx, 131072)
+        self.assertEqual(len(mon.requests), 2)
+        first, second = mon.requests
+        self.assertEqual((first.finish, first.gen, first.decode_tps, first.prefill_tps),
+                         ("length", 400, 65.58, 190.95))
+        self.assertIs(mon.current, second)
+        self.assertEqual((second.cached, second.new, second.gen), (412, 488, 50))
+        self.assertEqual(mon.phase, "decode")
+        self.assertEqual(list(mon.spark), [61.08, 68.97, 59.05])
+        self.assertEqual(mon.kv_misses, 1)
+        self.assertIn("1 requests", mon.summary())
+
+    def test_restart_and_lost_requests(self):
+        mon = self.feed(self.LOG + "1105 10:40:00 ds4-server: listening on http://0.0.0.0:8765\n")
+        self.assertEqual(mon.requests[-1].finish, "restarted")
+        self.assertEqual(mon.phase, "idle")
+        self.assertIsNone(mon.current)
+
+    def test_finish_without_start_still_counts(self):
+        mon = self.feed("1105 10:33:43 ds4-server: chat ctx=5..60:55 gen=7 finish=stop 2.000s\n")
+        (req,) = mon.requests
+        self.assertEqual((req.cached, req.new, req.gen, req.finish), (5, 55, 7, "stop"))
+
+    def test_year_rolls_back_for_december_lines_read_in_january(self):
+        jan = __import__("datetime").datetime(2027, 1, 1, 0, 5)
+        ts = ds4mon.stamp_time(12, 31, 23, 59, 0, now=jan)
+        self.assertEqual(time_year(ts), 2026)
+
+    def test_log_tail_follows_truncation_and_partial_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "ds4.log"
+            path.write_text("old line\n" * 10)
+            tail = ds4mon.LogTail(path, backfill=20)
+            self.assertEqual(tail.lines(), ["old line", "old line"])
+            with path.open("a") as f:
+                f.write("half")
+            self.assertEqual(tail.lines(), [])
+            with path.open("a") as f:
+                f.write(" done\n")
+            self.assertEqual(tail.lines(), ["half done"])
+            path.write_text("fresh\n")  # truncated: start over
+            self.assertEqual(tail.lines(), ["fresh"])
+
+    def test_ps_and_macmon(self):
+        self.assertEqual(ds4mon.parse_ps("  45000000   3.5   01:02:03\n"),
+                         (45000000 * 1024, 3.5, "01:02:03"))
+        self.assertIsNone(ds4mon.parse_ps(""))
+        m = ds4mon.parse_macmon(json.dumps({"gpu_active_ratio": 0.9, "gpu_power": 40.0,
+                                            "memory": {"ram_usage": 1}, "temp": {}}))
+        self.assertEqual((m["gpu"], m["gpu_w"], m["ram"], m["gpu_temp"]), (0.9, 40.0, 1, None))
+        self.assertIsNone(ds4mon.parse_macmon("not json"))
+        self.assertEqual(ds4mon.parse_footprint(
+            "ds4-server [1]: 64-bit    Footprint: 11973205168 B (16384 bytes per page)\n"
+            "    phys_footprint: 11973205168 B\n"), 11973205168)
+        self.assertIsNone(ds4mon.parse_footprint("footprint: no such process"))
+
+
+def time_year(ts):
+    import datetime as dt
+    return dt.datetime.fromtimestamp(ts).year
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

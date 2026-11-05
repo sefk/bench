@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.sefk.ds4-server</string>
+
+	<!-- Rendered and loaded by bin/deploy-ds4 as a system LaunchDaemon
+	     (starts at boot); it runs as the user so it can read the ds4 build and
+	     model packs. Settings live in launchd/ds4-server.conf. Do not install
+	     by hand. -->
+	<key>UserName</key>
+	<string>@USER@</string>
+	<key>GroupName</key>
+	<string>@GROUP@</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>@ROOT@/bin/ds4-serve</string>
+	</array>
+
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<!-- Standard, not Background: Background lowers I/O priority, and the
+	     n-gram table is read from SSD on every token. -->
+	<key>ProcessType</key>
+	<string>Standard</string>
+	<!-- ds4 drains in-flight requests on SIGTERM. -->
+	<key>ExitTimeOut</key>
+	<integer>30</integer>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>@HOME@</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>@LOG@</string>
+	<key>StandardErrorPath</key>
+	<string>@LOG@</string>
+</dict>
+</plist>

@@ -1,0 +1,767 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["textual>=0.80"]
+# ///
+"""Live terminal view of what the ds4 server is doing.
+
+ds4-server has no metrics endpoint, but its log says everything: a line when
+a request's prompt starts, prefill progress, a decode line every 50 tokens
+with the speed so far, and a finish line with the stop reason. ds4mon tails
+that log (the LaunchDaemon writes it to ~/Library/Logs/ds4-server.log) and
+adds three live sources:
+
+  GET /v1/models every two seconds -- is the server answering, which model,
+  what context.
+
+  `ps` and `footprint` on the ds4-server process -- pid, uptime, CPU, and its
+  physical footprint. The footprint leaves out the model weights, which are a
+  file-backed mmap; the startup log's "planned" figure covers those.
+
+  `macmon pipe` -- GPU load, power, RAM and swap, GPU temperature. Without
+  macmon (`brew install macmon`) that line says so and the rest still works.
+
+    ./ds4mon                      # the daemon's log and port
+    ./ds4mon --log FILE --url http://127.0.0.1:8000
+
+Requests are matched by order: the default server has one slot, so requests
+run one at a time. With `--batched-session N` lines from different requests
+interleave and the table will mix them up.
+
+Keys: j/k or up/down move, g/G top/bottom (at the bottom the view follows new
+requests), c cycles the accent color (remembered in
+~/.config/ds4mon/config.json), x clears history, q quits.
+
+The parsing below is plain functions with no Textual import, so `tests.py` can
+load this file with the stdlib alone; Textual is only imported in `main`.
+"""
+
+import json
+import os
+import re
+import time
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+
+DEFAULT_LOG = Path.home() / "Library" / "Logs" / "ds4-server.log"
+DEFAULT_URL = "http://127.0.0.1:8765"
+CONFIG_PATH = Path.home() / ".config" / "ds4mon" / "config.json"
+ACCENTS = {
+    "green": "ansi_green",
+    "amber": "ansi_yellow",
+    "blue": "ansi_blue",
+    "cyan": "ansi_cyan",
+    "magenta": "ansi_magenta",
+    "red": "ansi_red",
+    "white": "ansi_white",
+}
+HISTORY = 500  # requests kept
+BACKFILL = 2 * 1024 * 1024  # bytes of existing log read at startup
+SPARK_WIDTH = 60
+SPARK_CHARS = "▁▂▃▄▅▆▇█"
+COLUMNS = [
+    ("time", "time"),
+    ("api", "kind"),
+    ("cached", "cached"),
+    ("new", "new"),
+    ("prefill t/s", "prefill_tps"),
+    ("gen", "gen"),
+    ("tok/s", "decode_tps"),
+    ("took", "took"),
+    ("finish", "finish"),
+    ("flags", "flags"),  # last, so a narrow terminal clips only this
+]
+
+# -- parsing -----------------------------------------------------------------
+#
+# Timestamped lines look like
+#   1105 10:33:37 ds4-server: chat ctx=0..60:60 prompt start
+# where ctx=A..B:N is the request's prompt: A tokens reused from the KV cache,
+# B in all, N newly prefilled. Decode lines carry the live window instead:
+#   ... chat ctx=410..460:50 gen=400 THINKING decoding chunk=68.97 t/s avg=65.58 t/s 6.099s
+# and the finish line repeats the prompt span:
+#   ... chat ctx=0..60:60 gen=400 THINKING finish=length 6.414s
+# Upper-case words after the span (THINKING, TOOLS, ...) are request flags.
+
+STAMP = re.compile(r"^(\d{2})(\d{2}) (\d{2}):(\d{2}):(\d{2}) ds4-server: (.*)$")
+SPAN = r"(chat|completion) ctx=(\d+)\.\.(\d+):(\d+)"
+FLAGS = r"((?: [A-Z][A-Z_]*)*)"
+PROMPT_LINE = re.compile(rf"^{SPAN}{FLAGS} (prompt start|prefill chunk|prompt done)(.*)$")
+GEN_LINE = re.compile(rf"^{SPAN} gen=(\d+){FLAGS} (decoding|finish=)(.*)$")
+PREFILL = re.compile(r"^ (\d+)/(\d+) \(([\d.]+)%\).* avg=([\d.]+) t/s ([\d.]+)s")
+SECONDS = re.compile(r"([\d.]+)s\s*$")
+DECODE = re.compile(r"^ chunk=([\d.]+) t/s avg=([\d.]+) t/s ([\d.]+)s")
+FINISH = re.compile(r'^(\S+)(?: error="(.*)")? ([\d.]+)s\s*$')
+LISTENING = re.compile(r"^listening on (\S+)")
+KV_MISS = re.compile(r"^live kv cache miss.* reason=(\S+)")
+KV_HIT = re.compile(r"kv cache hit .*tokens=(\d+)")
+# Startup lines without a timestamp.
+MEMORY = re.compile(
+    r"^ds4: memory: KV ([\d.]+) GiB .*resident model ([\d.]+) GiB = ([\d.]+) GiB planned"
+)
+MEM_DETAIL = re.compile(r"^ds4: memory detail: ctx=(\d+)")
+TROUBLE = re.compile(r"\b(fail|failed|error|invalid|warning)\b", re.I)
+
+
+def stamp_time(month, day, hh, mm, ss, now=None):
+    """ds4 logs MMDD with no year: take this year, or last year if that would
+    put the line more than a day in the future (a log read just after New Year)."""
+    now = now or datetime.now()
+    t = datetime(now.year, month, day, hh, mm, ss)
+    if (t - now).total_seconds() > 86400:
+        t = t.replace(year=now.year - 1)
+    return t.timestamp()
+
+
+def parse_line(line, now=None):
+    """One log line -> an event dict, or None for lines ds4mon ignores."""
+    line = line.rstrip("\n")
+    m = MEMORY.match(line)
+    if m:
+        return {"event": "memory", "kv_gib": float(m[1]), "model_gib": float(m[2]),
+                "planned_gib": float(m[3])}
+    m = MEM_DETAIL.match(line)
+    if m:
+        return {"event": "ctx", "ctx": int(m[1])}
+    m = STAMP.match(line)
+    if not m:
+        return None
+    ts = stamp_time(*(int(x) for x in m.groups()[:5]), now=now)
+    msg = m[6]
+    base = {"ts": ts}
+
+    m = PROMPT_LINE.match(msg)
+    if m:
+        base |= {"kind": m[1], "cached": int(m[2]), "prompt": int(m[3]),
+                 "new": int(m[4]), "flags": m[5].split()}
+        what, rest = m[6], m[7]
+        if what == "prompt start":
+            return base | {"event": "start"}
+        if what == "prefill chunk":
+            p = PREFILL.match(rest)
+            if not p:
+                return None
+            return base | {"event": "prefill", "done": int(p[1]), "total": int(p[2]),
+                           "pct": float(p[3]), "tps": float(p[4]), "secs": float(p[5])}
+        s = SECONDS.search(rest)
+        return base | {"event": "prompt_done", "secs": float(s[1]) if s else None}
+
+    m = GEN_LINE.match(msg)
+    if m:
+        base |= {"kind": m[1], "span": (int(m[2]), int(m[3]), int(m[4])),
+                 "gen": int(m[5]), "flags": m[6].split()}
+        if m[7] == "decoding":
+            d = DECODE.match(m[8])
+            if not d:
+                return None
+            return base | {"event": "decode", "chunk_tps": float(d[1]),
+                           "tps": float(d[2]), "secs": float(d[3])}
+        f = FINISH.match(m[8])
+        if not f:
+            return None
+        cached, prompt, new = base["span"]
+        return base | {"event": "finish", "finish": f[1], "error": f[2],
+                       "secs": float(f[3]), "cached": cached, "prompt": prompt, "new": new}
+
+    m = LISTENING.match(msg)
+    if m:
+        return base | {"event": "listening", "url": m[1]}
+    if msg.startswith("shutdown requested"):
+        return base | {"event": "shutdown"}
+    m = KV_MISS.match(msg)
+    if m:
+        return base | {"event": "kv_miss", "reason": m[1]}
+    m = KV_HIT.search(msg)
+    if m:
+        return base | {"event": "kv_hit", "tokens": int(m[1])}
+    if TROUBLE.search(msg):
+        return base | {"event": "warning", "text": msg}
+    return None
+
+
+class Request:
+    def __init__(self, ts, kind, cached, prompt, new, flags):
+        self.ts = ts
+        self.kind = kind
+        self.cached = cached
+        self.prompt = prompt
+        self.new = new
+        self.flags = list(flags)
+        self.prefill_tps = None
+        self.prefill_s = None
+        self.prefill_pct = 0.0
+        self.gen = 0
+        self.decode_tps = None
+        self.finish = None  # stop reason, or "lost" when the server moved on
+        self.error = None
+        self.took = None
+
+    @property
+    def done(self):
+        return self.finish is not None
+
+    def add_flags(self, flags):
+        for f in flags:
+            if f not in self.flags:
+                self.flags.append(f)
+
+
+class Monitor:
+    """Server state rebuilt from log events. No I/O, so it can be tested."""
+
+    def __init__(self):
+        self.requests = deque(maxlen=HISTORY)
+        self.current = None
+        self.phase = "idle"
+        self.phase_since = None
+        self.started = None  # ts of the last "listening" line
+        self.listen_url = None
+        self.ctx = None
+        self.memory = None
+        self.kv_misses = 0
+        self.kv_disk_hits = 0
+        self.last_warning = None
+        self.spark = deque(maxlen=SPARK_WIDTH)  # decode chunk speeds
+
+    def _phase(self, phase, ts):
+        if phase != self.phase:
+            self.phase, self.phase_since = phase, ts
+
+    def _drop_current(self, why):
+        if self.current and not self.current.done:
+            self.current.finish = why
+        self.current = None
+
+    def feed(self, evt):
+        """Apply one event; True if the request table changed."""
+        kind = evt["event"]
+        ts = evt.get("ts")
+        if kind == "memory":
+            self.memory = evt
+            return False
+        if kind == "ctx":
+            self.ctx = evt["ctx"]
+            return False
+        if kind == "listening":
+            self._drop_current("restarted")
+            self.started, self.listen_url = ts, evt["url"]
+            self._phase("idle", ts)
+            return True
+        if kind == "shutdown":
+            self._phase("stopping", ts)
+            return False
+        if kind == "kv_miss":
+            self.kv_misses += 1
+            return False
+        if kind == "kv_hit":
+            self.kv_disk_hits += 1
+            return False
+        if kind == "warning":
+            self.last_warning = (ts, evt["text"])
+            return False
+        if kind == "start":
+            self._drop_current("lost")
+            self.current = Request(ts, evt["kind"], evt["cached"], evt["prompt"],
+                                   evt["new"], evt["flags"])
+            self.requests.append(self.current)
+            self._phase("prefill", ts)
+            return True
+
+        req = self.current
+        if kind == "prefill":
+            if req:
+                req.prefill_tps, req.prefill_pct = evt["tps"], evt["pct"]
+            self._phase("prefill", ts)
+            return bool(req)
+        if kind == "prompt_done":
+            if req:
+                req.prefill_s = evt["secs"]
+                if req.prefill_tps is None and evt["secs"]:
+                    req.prefill_tps = req.new / evt["secs"]
+                req.prefill_pct = 100.0
+            self._phase("decode", ts)
+            return bool(req)
+        if kind == "decode":
+            self.spark.append(evt["chunk_tps"])
+            if req:
+                req.gen, req.decode_tps = evt["gen"], evt["tps"]
+                req.add_flags(evt["flags"])
+            self._phase("decode", ts)
+            return bool(req)
+        if kind == "finish":
+            if req is None:  # its start was before the backfill window
+                req = Request(ts - evt["secs"], evt["kind"], evt["cached"],
+                              evt["prompt"], evt["new"], evt["flags"])
+                self.requests.append(req)
+            req.gen = evt["gen"]
+            req.add_flags(evt["flags"])
+            req.finish, req.error, req.took = evt["finish"], evt["error"], evt["secs"]
+            self.current = None
+            self._phase("idle", ts)
+            return True
+        return False
+
+    def summary(self):
+        done = [r for r in self.requests if r.done and r.took is not None]
+        if not done:
+            return "no requests yet"
+        gen = sum(r.gen for r in done)
+        timed = [r for r in done if r.decode_tps and r.gen]
+        tps = (sum(r.gen for r in timed) / sum(r.gen / r.decode_tps for r in timed)
+               if timed else None)
+        prompt = sum(r.prompt for r in done)
+        cached = sum(r.cached for r in done)
+        parts = [
+            f"{len(done)} requests",
+            f"{prompt:,} prompt tokens ({cached / prompt:.0%} from cache)" if prompt
+            else "0 prompt tokens",
+            f"{gen:,} generated",
+        ]
+        if tps:
+            parts.append(f"{tps:.1f} tok/s mean decode")
+        parts.append(f"{self.kv_misses} live-cache misses")
+        return " · ".join(parts)
+
+
+class LogTail:
+    """Follow a file across truncation and replacement, like `tail -F`."""
+
+    def __init__(self, path, backfill=BACKFILL):
+        self.path = Path(path)
+        self.backfill = backfill
+        self.fh = None
+        self.ino = None
+        self.buf = ""
+
+    def _open(self, from_end):
+        try:
+            fh = open(self.path, "r", errors="replace")
+        except OSError:
+            return False
+        st = os.fstat(fh.fileno())
+        if from_end and st.st_size > self.backfill:
+            fh.seek(st.st_size - self.backfill)
+            fh.readline()  # drop the partial line
+        self.fh, self.ino, self.buf = fh, st.st_ino, ""
+        return True
+
+    def lines(self):
+        """New complete lines since the last call."""
+        if self.fh is None:
+            if not self._open(from_end=True):
+                return []
+        else:
+            try:
+                st = os.stat(self.path)
+            except OSError:
+                st = None
+            if st is not None and (st.st_ino != self.ino or st.st_size < self.fh.tell()):
+                self.fh.close()
+                self.fh = None
+                if not self._open(from_end=False):
+                    return []
+        self.buf += self.fh.read()
+        *done, self.buf = self.buf.split("\n")
+        return done
+
+    @property
+    def exists(self):
+        return self.fh is not None
+
+
+def parse_ps(text):
+    """`ps -o rss=,%cpu=,etime=` for one pid -> (rss bytes, cpu %, etime)."""
+    parts = text.split()
+    if len(parts) < 3:
+        return None
+    try:
+        return int(parts[0]) * 1024, float(parts[1]), parts[2]
+    except ValueError:
+        return None
+
+
+FOOTPRINT = re.compile(r"phys_footprint:\s*(\d+) B")
+
+
+def parse_footprint(text):
+    """`footprint -p PID -f bytes` -> phys_footprint in bytes, or None."""
+    m = FOOTPRINT.search(text)
+    return int(m[1]) if m else None
+
+
+def parse_macmon(line):
+    try:
+        d = json.loads(line)
+    except ValueError:
+        return None
+    mem = d.get("memory") or {}
+    temp = d.get("temp") or {}
+    return {
+        "gpu": d.get("gpu_active_ratio"),
+        "gpu_w": d.get("gpu_power"),
+        "all_w": d.get("all_power"),
+        "sys_w": d.get("sys_power"),
+        "ram": mem.get("ram_usage"),
+        "ram_total": mem.get("ram_total"),
+        "swap": mem.get("swap_usage"),
+        "gpu_temp": temp.get("gpu_temp_avg"),
+    }
+
+
+# -- formatting --------------------------------------------------------------
+
+
+def sparkline(values, width=SPARK_WIDTH):
+    values = [v for v in values if v is not None][-width:]
+    if not values:
+        return ""
+    top = max(values) or 1.0
+    steps = len(SPARK_CHARS) - 1
+    return "".join(SPARK_CHARS[round(v / top * steps)] for v in values)
+
+
+def fmt_gb(n):
+    return "—" if n is None else f"{n / 1024**3:.1f} GB"
+
+
+def fmt_duration(s):
+    if s is None:
+        return "—"
+    s = int(s)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m{s % 60:02d}s"
+    if s < 86400:
+        return f"{s // 3600}h{s % 3600 // 60:02d}m"
+    return f"{s // 86400}d{s % 86400 // 3600:02d}h"
+
+
+def fmt_num(v, spec):
+    return "" if v is None else format(v, spec)
+
+
+def next_accent(current):
+    names = list(ACCENTS)
+    i = names.index(current) if current in names else -1
+    return names[(i + 1) % len(names)]
+
+
+def load_accent(path=CONFIG_PATH):
+    try:
+        accent = json.loads(path.read_text()).get("accent")
+    except (OSError, ValueError, AttributeError):
+        accent = None
+    return accent if accent in ACCENTS else next(iter(ACCENTS))
+
+
+def save_accent(accent, path=CONFIG_PATH):
+    try:
+        config = json.loads(path.read_text())
+    except (OSError, ValueError):
+        config = {}
+    config["accent"] = accent
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2) + "\n")
+
+
+def main():
+    import argparse
+    import subprocess
+    import threading
+    import urllib.request
+    from dataclasses import replace
+
+    from rich.text import Text
+    from textual.app import App, ComposeResult
+    from textual.binding import Binding
+    from textual.theme import BUILTIN_THEMES
+    from textual.widgets import DataTable, Footer, Header, Static
+
+    ap = argparse.ArgumentParser(description="Live view of the ds4 server.")
+    ap.add_argument("--log", default=str(DEFAULT_LOG), help=f"default {DEFAULT_LOG}")
+    ap.add_argument("--url", default=DEFAULT_URL, help=f"default {DEFAULT_URL}")
+    args = ap.parse_args()
+
+    def accent_theme(name, color):
+        base = BUILTIN_THEMES["ansi-dark"]
+        return replace(
+            base, name=f"ds4mon-{name}", primary=color, accent=color,
+            variables={**base.variables, "footer-key-foreground": color},
+        )
+
+    PHASE_STYLE = {"idle": "dim", "prefill": "bold yellow", "decode": "bold green",
+                   "stopping": "bold red"}
+
+    class Ds4Mon(App):
+        TITLE = "ds4mon"
+        SUB_TITLE = args.url
+        CSS = """
+        Header { background: ansi_default; color: $primary; }
+        #status { height: auto; border: round $primary; padding: 0 1; }
+        #requests { height: 1fr; border: round $primary; }
+        #summary { height: 1; padding: 0 1; color: $primary; }
+        DataTable > .datatable--header {
+            background: ansi_default; color: $primary; text-style: bold underline;
+        }
+        """
+        BINDINGS = [
+            Binding("j", "move(1)", show=False),
+            Binding("k", "move(-1)", show=False),
+            Binding("g", "top", show=False),
+            Binding("G", "bottom", show=False),
+            ("c", "cycle_color", "Color"),
+            ("x", "clear", "Clear"),
+            ("q", "quit", "Quit"),
+        ]
+
+        def on_load(self):
+            for name, color in ACCENTS.items():
+                self.register_theme(accent_theme(name, color))
+            self.accent_name = load_accent()
+            self.theme = f"ds4mon-{self.accent_name}"
+
+        def compose(self) -> ComposeResult:
+            yield Header()
+            yield Static(id="status")
+            yield DataTable(id="requests", cursor_type="row", zebra_stripes=True)
+            yield Static(id="summary")
+            yield Footer()
+
+        def on_mount(self):
+            self.mon = Monitor()
+            self.tail = LogTail(args.log)
+            self.models = None  # last /v1/models answer, or None when down
+            self.proc = None  # (pid, footprint bytes, cpu, etime)
+            self.macmon = None
+            self.macmon_error = None
+            self.stopping = False
+            status = self.query_one("#status", Static)
+            status.border_title = "server"
+            table = self.table
+            table.border_title = "requests"
+            for label, key in COLUMNS:
+                table.add_column(label, key=key)
+            table.focus()
+            self.read_log()
+            self.set_interval(0.25, self.read_log)
+            self.set_interval(1.0, self.refresh_status)
+            self.set_interval(2.0, self.poll)
+            self.poll()
+            threading.Thread(target=self.run_macmon, daemon=True).start()
+
+        def on_unmount(self):
+            self.stopping = True
+            p = getattr(self, "macmon_proc", None)
+            if p:
+                p.terminate()
+
+        @property
+        def table(self):
+            return self.query_one("#requests", DataTable)
+
+        # -- sources ---------------------------------------------------------
+
+        def read_log(self):
+            changed = False
+            for line in self.tail.lines():
+                evt = parse_line(line)
+                if evt and self.mon.feed(evt):
+                    changed = True
+            if changed:
+                self.rebuild()
+                self.refresh_status()
+
+        def poll(self):
+            self.run_worker(self._poll, thread=True, exclusive=True, group="poll")
+
+        def _poll(self):
+            try:
+                with urllib.request.urlopen(args.url + "/v1/models", timeout=1.5) as r:
+                    models = json.load(r).get("data") or []
+            except Exception:
+                models = None
+            proc = None
+            try:
+                pids = subprocess.run(["pgrep", "-x", "ds4-server"], capture_output=True,
+                                      text=True).stdout.split()
+                if pids:
+                    ps = subprocess.run(["ps", "-o", "rss=,%cpu=,etime=", "-p", pids[0]],
+                                        capture_output=True, text=True).stdout
+                    got = parse_ps(ps)
+                    fp = subprocess.run(["footprint", "-p", pids[0], "-f", "bytes"],
+                                        capture_output=True, text=True).stdout
+                    if got:
+                        proc = (int(pids[0]), parse_footprint(fp), got[1], got[2])
+            except OSError:
+                pass
+            self.call_from_thread(self._polled, models, proc)
+
+        def _polled(self, models, proc):
+            self.models, self.proc = models, proc
+            self.refresh_status()
+
+        def run_macmon(self):
+            while not self.stopping:
+                try:
+                    self.macmon_proc = subprocess.Popen(
+                        ["macmon", "pipe", "-i", "1000"], stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL, text=True, bufsize=1)
+                except OSError:
+                    self.macmon_error = "macmon not installed (brew install macmon)"
+                    return
+                for line in self.macmon_proc.stdout:
+                    m = parse_macmon(line)
+                    if m:
+                        self.macmon = m
+                self.macmon_proc.wait()
+                time.sleep(2)
+
+        # -- drawing ---------------------------------------------------------
+
+        def refresh_status(self):
+            now = time.time()
+            mon = self.mon
+            lines = []
+
+            t = Text()
+            if self.models is not None:
+                t.append("● up  ", style="bold green")
+                main = self.models[0] if self.models else {}
+                t.append(main.get("id", "?"), style="bold")
+                ctx = main.get("context_length") or mon.ctx
+                if ctx:
+                    t.append(f"  ctx {ctx:,}")
+            else:
+                t.append("● down  ", style="bold red")
+                t.append("no answer from " + args.url)
+            if mon.listen_url:
+                t.append(f"  {mon.listen_url}", style="dim")
+            lines.append(t)
+
+            t = Text()
+            if self.proc:
+                pid, footprint, cpu, etime = self.proc
+                t.append(f"pid {pid}  up {etime}  cpu {cpu:.0f}%"
+                         f"  footprint {fmt_gb(footprint)} + mapped model")
+            else:
+                t.append("no ds4-server process", style="dim")
+            if mon.memory:
+                t.append(f"  ·  planned {mon.memory['planned_gib']:.1f} GiB "
+                         f"(model {mon.memory['model_gib']:.1f}, "
+                         f"KV {mon.memory['kv_gib']:.1f})", style="dim")
+            lines.append(t)
+
+            t = Text()
+            phase = mon.phase
+            t.append(f"{phase:<8}", style=PHASE_STYLE.get(phase, ""))
+            req = mon.current
+            if phase == "prefill" and req:
+                t.append(f"  {req.new:,} new tokens  {req.prefill_pct:.0f}%"
+                         f"  {fmt_num(req.prefill_tps, '.0f')} t/s")
+            elif phase == "decode" and req:
+                t.append(f"  gen {req.gen:,}  {fmt_num(req.decode_tps, '.1f')} tok/s")
+            if mon.phase_since:
+                t.append(f"  for {fmt_duration(now - mon.phase_since)}", style="dim")
+            lines.append(t)
+
+            t = Text()
+            t.append("decode t/s ", style="dim")
+            t.append(sparkline(mon.spark), style="green")
+            if mon.spark:
+                t.append(f"  last {mon.spark[-1]:.1f}  max {max(mon.spark):.1f}", style="dim")
+            lines.append(t)
+
+            t = Text()
+            m = self.macmon
+            if m:
+                gpu = m["gpu"] or 0
+                t.append(f"GPU {gpu:.0%}", style="bold green" if gpu > 0.5 else "")
+                t.append(f"  {m['gpu_w'] or 0:.1f} W  ·  SoC {m['all_w'] or 0:.1f} W"
+                         f"  ·  system {m['sys_w'] or 0:.1f} W"
+                         f"  ·  RAM {fmt_gb(m['ram'])} / {fmt_gb(m['ram_total'])}"
+                         f"  ·  swap {fmt_gb(m['swap'])}")
+                if m["gpu_temp"]:
+                    t.append(f"  ·  GPU {m['gpu_temp']:.0f}°C")
+            else:
+                t.append(self.macmon_error or "waiting for macmon…", style="dim")
+            lines.append(t)
+
+            if mon.last_warning:
+                ts, text = mon.last_warning
+                lines.append(Text(f"{clock(ts)} {text}"[:200], style="yellow"))
+
+            self.query_one("#status", Static).update(Text("\n").join(lines))
+            self.query_one("#summary", Static).update(mon.summary())
+            self.update_running()
+
+        def rebuild(self):
+            table = self.table
+            following = table.row_count == 0 or table.cursor_row >= table.row_count - 1
+            table.clear()
+            for req in self.mon.requests:
+                table.add_row(*[cells(req)[k] for _, k in COLUMNS], key=str(id(req)))
+            if following and table.row_count:
+                table.move_cursor(row=table.row_count - 1)
+
+        def update_running(self):
+            req = self.mon.current
+            if req and str(id(req)) in self.table.rows:
+                c = cells(req)
+                for key in ("prefill_tps", "gen", "decode_tps", "took"):
+                    self.table.update_cell(str(id(req)), key, c[key], update_width=True)
+
+        def action_cycle_color(self):
+            self.accent_name = next_accent(self.accent_name)
+            self.theme = f"ds4mon-{self.accent_name}"
+            self.notify(self.accent_name, timeout=1)
+            save_accent(self.accent_name)
+
+        def action_move(self, delta):
+            table = self.table
+            table.move_cursor(row=max(0, min(table.row_count - 1, table.cursor_row + delta)))
+
+        def action_top(self):
+            self.table.move_cursor(row=0)
+
+        def action_bottom(self):
+            self.table.move_cursor(row=max(0, self.table.row_count - 1))
+
+        def action_clear(self):
+            self.mon.requests.clear()
+            self.mon.spark.clear()
+            self.table.clear()
+            self.refresh_status()
+
+    def clock(ts):
+        return time.strftime("%H:%M:%S", time.localtime(ts))
+
+    def cells(req):
+        if req.done:
+            finish = Text(req.finish, style="red" if req.finish in
+                          ("lost", "restarted", "error") or req.error else
+                          "yellow" if req.finish == "length" else "")
+            took = fmt_duration(req.took) if req.took and req.took >= 60 else (
+                f"{req.took:.1f}s" if req.took is not None else "")
+        else:
+            finish = Text("running", style="bold yellow")
+            took = fmt_duration(time.time() - req.ts)
+        return {
+            "time": clock(req.ts),
+            "kind": req.kind,
+            "cached": f"{req.cached:,}" if req.cached else "",
+            "new": f"{req.new:,}",
+            "prefill_tps": fmt_num(req.prefill_tps, ".0f"),
+            "gen": f"{req.gen:,}" if req.gen else "",
+            "decode_tps": fmt_num(req.decode_tps, ".1f"),
+            "took": took,
+            "finish": finish,
+            "flags": Text(" ".join(req.flags).lower(), style="dim"),
+        }
+
+    Ds4Mon().run()
+
+
+if __name__ == "__main__":
+    main()

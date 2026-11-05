@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Day-to-day control of the ds4 LaunchDaemon installed by bin/deploy-ds4.
+#
+#   bin/ds4ctl status    daemon state, pid, and whether the API answers
+#   bin/ds4ctl stop      unload until the next start or reboot (frees ~55 GiB for benchmarks)
+#   bin/ds4ctl start     load it again
+#   bin/ds4ctl restart   restart in place, e.g. after editing launchd/ds4-server.conf or rebuilding ds4
+#   bin/ds4ctl log       follow the server log
+#
+# stop/start/restart need sudo: it is a system daemon so it can start at boot.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LABEL=com.sefk.ds4-server
+DEST="/Library/LaunchDaemons/$LABEL.plist"
+LOG="$HOME/Library/Logs/ds4-server.log"
+# shellcheck source=../launchd/ds4-server.conf
+source "$ROOT/launchd/ds4-server.conf"
+URL="http://127.0.0.1:$DS4_PORT/v1/models"
+
+case "${1:-status}" in
+  status)
+    if [ ! -f "$DEST" ]; then
+      echo "$LABEL not installed (bin/deploy-ds4)"
+    elif info="$(launchctl print "system/$LABEL" 2>/dev/null)"; then
+      echo "$info" | grep -E '^\s*(state|pid|last exit code) =' | sed 's/^\s*/  /'
+    else
+      echo "$LABEL installed but not loaded (bin/ds4ctl start)"
+    fi
+    if models="$(curl -fsS --max-time 2 "$URL" 2>/dev/null)"; then
+      echo "  api = up on :$DS4_PORT, $(echo "$models" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])')"
+    else
+      echo "  api = no answer on :$DS4_PORT"
+    fi
+    ;;
+  stop)    sudo launchctl bootout "system/$LABEL" && echo "stopped $LABEL" ;;
+  start)   sudo launchctl bootstrap system "$DEST" && echo "started $LABEL" ;;
+  restart) sudo launchctl kickstart -k "system/$LABEL" && echo "restarted $LABEL" ;;
+  log)     exec tail -F "$LOG" ;;
+  *)       sed -n '2,11p' "$0"; exit 2 ;;
+esac

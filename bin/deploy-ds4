@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Install (or update) ds4-server as a system LaunchDaemon that runs as this
+# user: starts at boot with nobody logged in, restarts if it dies. Settings
+# are in launchd/ds4-server.conf. Needs sudo for the install.
+#
+#   bin/deploy-ds4            render the plist, (re)load, wait for the model to answer
+#   bin/deploy-ds4 --remove   unload and delete the daemon
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LABEL=com.sefk.ds4-server
+LOG="$HOME/Library/Logs/ds4-server.log"
+DEST="/Library/LaunchDaemons/$LABEL.plist"
+SYS=system
+# shellcheck source=../launchd/ds4-server.conf
+source "$ROOT/launchd/ds4-server.conf"
+
+# bootout is asynchronous; bootstrap fails with "5: Input/output error" until it finishes.
+unload() {
+  sudo launchctl bootout "$SYS/$LABEL" 2>/dev/null || true
+  for _ in $(seq 1 60); do
+    launchctl print "$SYS/$LABEL" >/dev/null 2>&1 || return 0
+    sleep 0.5
+  done
+}
+
+if [ "${1:-}" = "--remove" ]; then
+  sudo -v
+  unload
+  sudo rm -f "$DEST"
+  echo "removed $LABEL"
+  exit 0
+fi
+
+[ -x "$DS4_DIR/ds4-server" ] || { echo "no ds4-server in $DS4_DIR; run make there" >&2; exit 1; }
+[ -f "$DS4_DIR/$DS4_MODEL" ] || { echo "no model at $DS4_DIR/$DS4_MODEL" >&2; exit 1; }
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+sed -e "s|@ROOT@|$ROOT|g" -e "s|@LOG@|$LOG|g" -e "s|@HOME@|$HOME|g" \
+    -e "s|@USER@|$(id -un)|g" -e "s|@GROUP@|$(id -gn)|g" \
+    "$ROOT/launchd/$LABEL.plist.in" > "$tmp"
+plutil -lint "$tmp" >/dev/null
+
+sudo -v
+unload
+# Anything else on the port (a hand-started ds4, say) would make the daemon crash-loop.
+if holder="$(lsof -nP -iTCP:"$DS4_PORT" -sTCP:LISTEN -t 2>/dev/null)" && [ -n "$holder" ]; then
+  echo "port $DS4_PORT is held by pid $holder ($(ps -o comm= -p "$holder")); stop it first" >&2
+  exit 1
+fi
+mkdir -p "$(dirname "$LOG")"
+sudo install -o root -g wheel -m 644 "$tmp" "$DEST"
+sudo launchctl bootstrap "$SYS" "$DEST"
+
+# Mapping the model takes a few seconds, longer on a cold page cache after boot.
+for _ in $(seq 1 120); do
+  if curl -fsS -o /dev/null "http://127.0.0.1:$DS4_PORT/v1/models" 2>/dev/null; then
+    echo "$LABEL up on $DS4_HOST:$DS4_PORT (log: $LOG)"
+    exit 0
+  fi
+  sleep 1
+done
+echo "$LABEL did not answer on port $DS4_PORT; see $LOG" >&2
+tail -n 20 "$LOG" >&2 || true
+exit 1

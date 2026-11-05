@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Start ds4-server with the settings in launchd/ds4-server.conf. The
+# LaunchDaemon runs this; it also works by hand for a foreground run.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=../launchd/ds4-server.conf
+source "$ROOT/launchd/ds4-server.conf"
+mkdir -p "$DS4_KV_DIR"
+cd "$DS4_DIR"
+exec ./ds4-server -m "$DS4_MODEL" --ctx "$DS4_CTX" \
+  --host "$DS4_HOST" --port "$DS4_PORT" \
+  --kv-disk-dir "$DS4_KV_DIR" --kv-disk-space-mb "$DS4_KV_MB" \
+  "${DS4_ARGS[@]}"

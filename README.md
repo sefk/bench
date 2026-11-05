@@ -1,7 +1,8 @@
 # Local LLM benchmarks
 
 Throughput benchmarks and other investigations of models running locally under
-[LM Studio][lms] on Apple Silicon.
+[LM Studio][lms] and other engines on Apple Silicon, plus the config and
+tooling for the models this machine serves day to day.
 
 ## Hardware
 
@@ -355,6 +356,72 @@ Studio not running", and the log stream reattaches when LM Studio comes back.
 That way quitting LM Studio, or macOS killing it, doesn't get undone every
 second.
 
+## Serving: the ds4 daemon
+
+The day-to-day local model is Qwen3.8 Flash-Next on [DwarfStar (ds4)][ds4],
+2-bit pack with speculative decoding (see [REPORT.md][report] for why). It runs
+as a system LaunchDaemon, `com.sefk.ds4-server`, that starts at boot with
+nobody logged in, restarts if it dies, and serves the OpenAI, Anthropic and
+Responses APIs on **port 8765** on every interface. The port stays clear of
+LM Studio (1234), ollama (11434), llama.cpp (8080) and the ds4/MTPLX default
+(8000), so benchmark runs of those can share the machine. ds4 has no API key,
+so anything on the LAN can use it.
+
+ds4 publishes no binaries; it is built from source in `~/src/ds4` with
+`make`. Its model packs live in `~/src/ds4/gguf/`.
+
+```sh
+bin/deploy-ds4            # install or update the daemon (sudo), wait for the API
+bin/deploy-ds4 --remove   # uninstall
+bin/ds4ctl status         # daemon state and whether the API answers
+bin/ds4ctl stop           # unload, e.g. to free ~55 GiB for a benchmark (sudo)
+bin/ds4ctl start          # load again (sudo)
+bin/ds4ctl restart        # after editing the config or rebuilding ds4 (sudo)
+bin/ds4ctl log            # follow ~/Library/Logs/ds4-server.log
+```
+
+Settings live in `launchd/ds4-server.conf`: model, context (131,072 tokens,
+55.6 GiB planned), host, port, the on-disk KV cache in `~/.ds4/server-kv`, and
+extra flags. `bin/ds4-serve` reads it on every start, so a config change needs
+only `bin/ds4ctl restart`. The same script runs the server in the foreground
+for debugging.
+
+To update ds4: `git pull && make` in `~/src/ds4`, then `bin/ds4ctl restart`.
+The project is beta and moves fast, so rerun a quick speed check after an
+update.
+
+The log is not rotated. It grows about 2 bytes per generated token, roughly
+20 MB per ten million tokens. Truncate it by hand if it ever matters; ds4mon
+picks up a truncated log on its own.
+
+### Watching ds4 live: `ds4mon`
+
+```sh
+./ds4mon                                   # the daemon's log and port
+./ds4mon --log FILE --url http://127.0.0.1:8000
+```
+
+A terminal UI in the same style as `lmsmon`. ds4 has no metrics endpoint,
+so ds4mon tails the server log. The top panel shows:
+
+- whether the API answers, the model and its context
+- the process's uptime, CPU, physical footprint, and the planned memory from
+  the startup log (the footprint leaves out the mmapped weights)
+- the current phase (idle, prefill with percent done, decode with live tok/s)
+- a sparkline of decode speed, one bar per 50-token chunk
+- GPU load and power, SoC and system power, RAM, swap and GPU temperature from
+  `macmon`
+
+Below it is a row per request: tokens reused from the KV cache, new prompt
+tokens, prefill and decode speed, tokens generated, time taken, stop reason
+and flags such as `thinking` or `tools`. The summary line totals them, with
+the share of prompt tokens served from cache. Keys: `j`/`k`, `g`/`G` (the
+bottom follows new requests), `c` color, `x` clear, `q` quit.
+
+Requests are matched in order, which is right for the default single-slot
+server. With `--batched-session` the log interleaves requests and the table
+will mix them up.
+
 ## Tests
 
 ```sh
@@ -363,9 +430,10 @@ cd dashboard && uv run manage.py test
 ```
 
 `tests.py` covers the logic that fails quietly rather than loudly: answer
-grading, score aggregation, resume-after-failure, warm-up convergence, and
-`lmsmon`'s event parsing (against event shapes captured from LM Studio). It
-touches neither the GPU, LM Studio, nor `fm`.
+grading, score aggregation, resume-after-failure, warm-up convergence,
+`lmsmon`'s event parsing (against event shapes captured from LM Studio), and
+`ds4mon`'s log parsing (against lines from a real ds4 server log). It touches
+neither the GPU, LM Studio, ds4, nor `fm`.
 
 ## Results layout
 
@@ -518,6 +586,7 @@ Results are cached in memory and re-read automatically when a result file's
 mtime changes, so new runs show up on refresh without restarting the server.
 
 [django]: https://www.djangoproject.com
+[ds4]: https://github.com/antirez/ds4
 [facts]: model-facts.json
 [lcb]: https://livecodebench.github.io
 [lms]: https://lmstudio.ai
