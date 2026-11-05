@@ -234,7 +234,9 @@ class Monitor:
         self.current = None
 
     def feed(self, evt):
-        """Apply one event; True if the request table changed."""
+        """Apply one event; True if the request table needs redrawing (a row
+        added or finished). Progress on the running request returns False: the
+        app updates that row's cells in place."""
         kind = evt["event"]
         ts = evt.get("ts")
         if kind == "memory":
@@ -273,7 +275,7 @@ class Monitor:
             if req:
                 req.prefill_tps, req.prefill_pct = evt["tps"], evt["pct"]
             self._phase("prefill", ts)
-            return bool(req)
+            return False
         if kind == "prompt_done":
             if req:
                 req.prefill_s = evt["secs"]
@@ -281,14 +283,14 @@ class Monitor:
                     req.prefill_tps = req.new / evt["secs"]
                 req.prefill_pct = 100.0
             self._phase("decode", ts)
-            return bool(req)
+            return False
         if kind == "decode":
             self.spark.append(evt["chunk_tps"])
             if req:
                 req.gen, req.decode_tps = evt["gen"], evt["tps"]
                 req.add_flags(evt["flags"])
             self._phase("decode", ts)
-            return bool(req)
+            return False
         if kind == "finish":
             if req is None:  # its start was before the backfill window
                 req = Request(ts - evt["secs"], evt["kind"], evt["cached"],
@@ -564,14 +566,16 @@ def main():
         # -- sources ---------------------------------------------------------
 
         def read_log(self):
-            changed = False
+            seen = changed = False
             for line in self.tail.lines():
                 evt = parse_line(line)
-                if evt and self.mon.feed(evt):
-                    changed = True
+                if evt:
+                    seen = True
+                    changed = self.mon.feed(evt) or changed
             if changed:
                 self.rebuild()
-                self.refresh_status()
+            if seen:
+                self.refresh_status()  # also updates the running row in place
 
         def poll(self):
             self.run_worker(self._poll, thread=True, exclusive=True, group="poll")
@@ -697,13 +701,22 @@ def main():
             self.update_running()
 
         def rebuild(self):
+            """Redraw every row. The cursor stays on its request, or on the last
+            row if it was there, so the view follows new requests like `G`."""
             table = self.table
             following = table.row_count == 0 or table.cursor_row >= table.row_count - 1
+            selected = None
+            if table.row_count:
+                selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
             table.clear()
             for req in self.mon.requests:
                 table.add_row(*[cells(req)[k] for _, k in COLUMNS], key=str(id(req)))
-            if following and table.row_count:
+            if not table.row_count:
+                return
+            if following:
                 table.move_cursor(row=table.row_count - 1)
+            elif selected in table.rows:
+                table.move_cursor(row=table.get_row_index(selected))
 
         def update_running(self):
             req = self.mon.current
@@ -746,7 +759,7 @@ def main():
                 f"{req.took:.1f}s" if req.took is not None else "")
         else:
             finish = Text("running", style="bold yellow")
-            took = fmt_duration(time.time() - req.ts)
+            took = fmt_duration(max(0, time.time() - req.ts))
         return {
             "time": clock(req.ts),
             "kind": req.kind,

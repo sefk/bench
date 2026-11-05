@@ -818,6 +818,15 @@ ds4-server: thinking not closed, ignoring incomplete Qwen tool calls in reasonin
         self.assertEqual(mon.kv_misses, 1)
         self.assertIn("1 requests", mon.summary())
 
+    def test_only_new_or_finished_rows_ask_for_a_redraw(self):
+        mon = ds4mon.Monitor()
+        redraws = [mon.feed(ds4mon.parse_line(line, now=self.NOW))
+                   for line in self.LOG.splitlines()[3:8]]
+        # start, prefill, prompt done, two decodes: only the start adds a row.
+        self.assertEqual(redraws, [True, False, False, False, False])
+        fin = ds4mon.parse_line(self.LOG.splitlines()[9], now=self.NOW)
+        self.assertTrue(mon.feed(fin))
+
     def test_restart_and_lost_requests(self):
         mon = self.feed(self.LOG + "1105 10:40:00 ds4-server: listening on http://0.0.0.0:8765\n")
         self.assertEqual(mon.requests[-1].finish, "restarted")
